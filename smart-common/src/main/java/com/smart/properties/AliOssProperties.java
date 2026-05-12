@@ -5,7 +5,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.stereotype.Component;
 
 @Component
-@ConfigurationProperties(prefix = "sky.alioss.oss")
+@ConfigurationProperties(prefix = "smart.alioss.oss")
 @Data
 public class AliOssProperties {
 

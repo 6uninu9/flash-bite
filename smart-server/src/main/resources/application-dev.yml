@@ -1,0 +1,12 @@
+smart:
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    host: localhost
+    port: 3306
+    database: smart_ordering
+    username: root
+    password: 2005830
+  wechat:
+    appid: wx25ab5e37793931ee
+    secret: 220aa8ddf313188d7aa4dc7293661bb4
+

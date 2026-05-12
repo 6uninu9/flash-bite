@@ -1,0 +1,75 @@
+server:
+  port: 8080
+
+springdoc:
+  default-flat-param-object: true
+  swagger-ui:
+    path: /swagger-ui.html
+    tags-sorter: alpha
+    operations-sorter: alpha
+  api-docs:
+    path: /v3/api-docs
+  group-configs:
+    - group: 'default'
+      paths-to-match: '/**'
+      packages-to-scan: com.smart.controller
+
+knife4j:
+  enable: true
+  setting:
+    language: zh_cn
+
+spring:
+  profiles:
+    active: dev
+  main:
+    allow-circular-references: true
+  datasource:
+    driver-class-name: ${smart.datasource.driver-class-name}
+    url: jdbc:mysql://${smart.datasource.host}:${smart.datasource.port}/${smart.datasource.database}
+    username: ${smart.datasource.username}
+    password: ${smart.datasource.password}
+    type: com.alibaba.druid.pool.DruidDataSource
+    druid:
+      initial-size: 5
+      min-idle: 5
+      max-active: 100  # 根据数据库和业务调整
+      max-wait: 30000  # 30秒超时
+      time-between-eviction-runs-millis: 30000  # 30秒检查一次
+      min-evictable-idle-time-millis: 180000  # 3分钟空闲回收
+      validation-query: SELECT 1 FROM DUAL
+      test-while-idle: true
+      test-on-borrow: false
+      test-on-return: false
+      pool-prepared-statements: true  # 打开PSCache，并且指定每个连接上PSCache的大小
+      max-pool-prepared-statement-per-connection-size: 20
+      filters: stat,wall  # 配置监控统计拦截的filters，去掉后监控界面sql无法统计，'wall'用于防火墙
+
+mybatis:
+  mapper-locations: classpath:mapper/*.xml
+  type-aliases-package: com.smart.entity
+  configuration:
+    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl # 打印 SQL
+#    log-impl: org.apache.ibatis.logging.nologging.NoLoggingImpl # 不打印 SQL
+    map-underscore-to-camel-case: true
+
+logging:
+  level:
+    org.springdoc: debug
+    com:
+      smart:
+        mapper: debug
+        service: info
+        controller: info
+
+smart:
+  jwt:
+    admin-secret-key-origin: "${random.value}"
+    admin-ttl: 7200000
+    admin-token-name: token
+    user-secret-key-origin: "${random.value}"
+    user-ttl: 7200000
+    user-token-name: authentication
+  wechat:
+    appid: ${smart.wechat.appid}
+    secret: ${smart.wechat.secret}

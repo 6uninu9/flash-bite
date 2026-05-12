@@ -9,7 +9,7 @@ import org.springframework.stereotype.Component;
 import java.security.Key;
 
 @Component
-@ConfigurationProperties(prefix = "sky.jwt")
+@ConfigurationProperties(prefix = "smart.jwt")
 @Data
 public class JwtProperties {
 
