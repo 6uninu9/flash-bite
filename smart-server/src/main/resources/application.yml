@@ -44,7 +44,13 @@ spring:
       pool-prepared-statements: true  # 打开PSCache，并且指定每个连接上PSCache的大小
       max-pool-prepared-statement-per-connection-size: 20
       filters: stat,wall  # 配置监控统计拦截的filters，去掉后监控界面sql无法统计，'wall'用于防火墙
-
+  data:
+    redis:
+#      连接密码为123456
+      host: ${smart.redis.host}
+      port: ${smart.redis.port}
+      password: ${smart.redis.password}
+      database: ${smart.redis.database}
 mybatis:
   mapper-locations: classpath:mapper/*.xml
   type-aliases-package: com.smart.entity

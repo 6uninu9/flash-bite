@@ -33,6 +33,7 @@ public class WebMvcConfiguration implements WebMvcConfigurer {
                         "/swagger-ui/**",             // Swagger UI
                         "/swagger-resources/**",       // Swagger 资源
                         "/doc.html",
+                        "/user/category/list",
                         "/user/dish/list"             // 用户查看菜品无需登录
                 ); // 排除登录接口
     }

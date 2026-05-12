@@ -9,4 +9,9 @@ smart:
   wechat:
     appid: wx25ab5e37793931ee
     secret: 220aa8ddf313188d7aa4dc7293661bb4
+  redis:
+    host: localhost
+    port: 6379
+    password: 123456
+    database: 5
 
