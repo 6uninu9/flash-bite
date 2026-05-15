@@ -20,7 +20,7 @@ public class RedisData implements Serializable {
     @Serial
     private static final long serialVersionUID = 1L;
 
-    // 实际业务数据（List<DishVO>）
+    // 实际业务数据（如List<DishVO>）
     private Object data;
     // 逻辑过期时间戳（毫秒）
     private Long expireTime;
