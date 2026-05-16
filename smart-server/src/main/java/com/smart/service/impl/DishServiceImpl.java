@@ -9,13 +9,16 @@ import com.smart.entity.Dish;
 import com.smart.entity.DishFlavor;
 import com.smart.mapper.DishFlavorMapper;
 import com.smart.mapper.DishMapper;
+import com.smart.service.BloomCacheService;
 import com.smart.service.DishService;
 import com.smart.task.HotCategoryLocalCacheRefreshTask;
 import com.smart.vo.DishVO;
 import lombok.extern.slf4j.Slf4j;
+import org.redisson.api.RBloomFilter;
 import org.redisson.api.RLock;
 import org.redisson.api.RedissonClient;
 import org.springframework.beans.BeanUtils;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
@@ -38,14 +41,23 @@ public class DishServiceImpl implements DishService {
 
     private final RedissonClient redissonClient;
 
+    // 注入对应业务的布隆过滤器
+    @Qualifier("dishBloomFilter")
+    private final RBloomFilter<String> dishBloomFilter;
+
+    // 注入布隆过滤器缓存服务，对布隆过滤器进行操作
+    private final BloomCacheService bloomCacheService;
+
     private static final String LOCK_CATEGORY_DISH_REBUILD = "lock:category:dish:rebuild";
 
-    public DishServiceImpl(DishMapper dishMapper, DishFlavorMapper dishFlavorMapper, StringRedisTemplate stringRedisTemplate, HotCategoryLocalCacheRefreshTask hotCategoryLocalCacheRefreshTask, RedissonClient redissonClient) {
+    public DishServiceImpl(DishMapper dishMapper, DishFlavorMapper dishFlavorMapper, StringRedisTemplate stringRedisTemplate, HotCategoryLocalCacheRefreshTask hotCategoryLocalCacheRefreshTask, RedissonClient redissonClient, RBloomFilter<String> dishBloomFilter, BloomCacheService bloomCacheService) {
         this.dishMapper = dishMapper;
         this.dishFlavorMapper = dishFlavorMapper;
         this.stringRedisTemplate = stringRedisTemplate;
         this.hotCategoryLocalCacheRefreshTask = hotCategoryLocalCacheRefreshTask;
         this.redissonClient = redissonClient;
+        this.dishBloomFilter = dishBloomFilter;
+        this.bloomCacheService = bloomCacheService;
     }
 
     /**
@@ -56,10 +68,18 @@ public class DishServiceImpl implements DishService {
      */
     @Override
     public List<DishVO> getDishListByCategoryId(Long categoryId) {
-        // 1. 记录categoryId的访问量，用于区分冷热数据 使用ZSet数据类型，便于记录访问量，即热度
+        // 1. 查询布隆过滤器是否存在该分类id，避免缓存穿透
+        if (!bloomCacheService.contains(dishBloomFilter, categoryId.toString())) {
+            // 1.1. 不存在，直接返回空集合
+            /// 如果前端有错误需求，可以抛出业务异常，让全局异常处理器处理，比如返回错误信息"菜品不存在"
+            log.info("布隆过滤器拦截-根据分类查询菜品-分类不存在");
+            return List.of();
+        }
+
+        // 2. 记录categoryId的访问量，用于区分冷热数据 使用ZSet数据类型，便于记录访问量，即热度
         stringRedisTemplate.opsForZSet().incrementScore(CacheKeyConstants.CATEGORY_QPS_STATS_KEY, String.valueOf(categoryId), 1);
 
-        // 2. 判断当前categoryId是热数据还是冷数据 走不同分支
+        // 3. 判断当前categoryId是热数据还是冷数据 走不同分支
         if (hotCategoryLocalCacheRefreshTask.isHot(String.valueOf(categoryId))) {
             return getHotCategoryDishes(categoryId);
         } else {

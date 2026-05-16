@@ -14,4 +14,11 @@ public interface CategoryMapper {
      * @return
      */
     List<Category> list(Integer type);
+
+    /**
+     * 查询所有分类id
+     * @return
+     */
+    @Select("SELECT id FROM category")
+    List<String> listAllIds();
 }
