@@ -33,6 +33,9 @@ public class Dish implements Serializable {
     //菜品价格
     private BigDecimal price;
 
+    // 秒杀价格
+    private BigDecimal spikePrice;
+
     //图片
     private String image;
 
@@ -58,7 +61,4 @@ public class Dish implements Serializable {
 
     // 菜品是否是秒杀商品 0 不是 1 是
     private Integer isSpike;
-
-    // 秒杀价格
-    private BigDecimal spikePrice;
 }

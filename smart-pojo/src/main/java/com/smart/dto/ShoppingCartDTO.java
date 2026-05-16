@@ -12,7 +12,6 @@ public class ShoppingCartDTO implements Serializable {
     private static final long serialVersionUID = 1L;
 
     private Long dishId;
-    private Long setmealId;
     private String dishFlavor;
 
 }

@@ -33,9 +33,6 @@ public class ShoppingCart implements Serializable {
     //菜品id
     private Long dishId;
 
-    //套餐id
-    private Long setmealId;
-
     //口味
     private String dishFlavor;
 
@@ -48,5 +45,6 @@ public class ShoppingCart implements Serializable {
     //图片
     private String image;
 
+    //创建时间
     private LocalDateTime createTime;
 }
