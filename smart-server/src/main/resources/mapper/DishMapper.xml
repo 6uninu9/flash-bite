@@ -2,6 +2,48 @@
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         "http://mybatis.org/dtd/mybatis-3-mapper.dtd" >
 <mapper namespace="com.smart.mapper.DishMapper">
+    <update id="update" parameterType="com.smart.entity.Dish">
+        update dish
+        <set>
+            <if test="name != null">
+                name = #{name},
+            </if>
+            <if test="categoryId != null">
+                category_id = #{categoryId},
+            </if>
+            <if test="price != null">
+                price = #{price},
+            </if>
+            <if test="spikePrice != null">
+                spike_price = #{spikePrice},
+            </if>
+            <if test="image != null">
+                image = #{image},
+            </if>
+            <if test="description != null">
+                description = #{description},
+            </if>
+            <if test="status != null">
+                status = #{status},
+            </if>
+            <if test="updateTime != null">
+                update_time = #{updateTime},
+            </if>
+            <if test="updateUser != null">
+                update_user = #{updateUser},
+            </if>
+            <if test="stock != null">
+                stock = #{stock},
+            </if>
+            <if test="activityStock != null">
+                activity_stock = #{activityStock},
+            </if>
+            <if test="isSpike != null">
+                is_spike = #{isSpike},
+            </if>
+        </set>
+        where id = #{id}
+    </update>
     <select id="list" resultType="com.smart.entity.Dish">
         select * from dish
         <where>

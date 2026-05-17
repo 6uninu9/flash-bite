@@ -79,3 +79,10 @@ smart:
   wechat:
     appid: ${smart.wechat.appid}
     secret: ${smart.wechat.secret}
+
+rocketmq:
+  name-server: YOUR_SERVER_IP:9876
+  producer:
+    group: rocketmq-producer-group
+  consumer:
+    group: rocketmq-consumer-group

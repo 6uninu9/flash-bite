@@ -2,6 +2,7 @@ package com.smart.mapper;
 
 import com.smart.entity.Dish;
 import org.apache.ibatis.annotations.Mapper;
+import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
 
 import java.util.List;
@@ -23,4 +24,10 @@ public interface DishMapper {
      */
     @Select("select id, name, category_id, price, spike_price, image, description, status, create_time, update_time, create_user, update_user, stock, activity_stock, is_spike from dish where id = #{dishId}")
     Dish getById(Long dishId);
+
+    /**
+     * 更新菜品数据
+     * @param dish 菜品数据
+     */
+    void update(Dish dish);
 }

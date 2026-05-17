@@ -9,4 +9,6 @@ public class CacheTimeConstant {
     public static final long NULL_TTL_SECONDS = 300;
     // 常规缓存过期TTL：30分钟
     public static final long COMMON_TTL_SECONDS = 1800;
+    // 消息去重缓存过期TTL：6小时
+    public static final long DUPLICATE_CHECK_TTL_SECONDS = 21600;
 }
