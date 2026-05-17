@@ -23,4 +23,7 @@ public class MessageConstant {
     public static final String ORDER_STATUS_ERROR = "订单状态错误";
     public static final String ORDER_NOT_FOUND = "订单不存在";
     public static final String DISH_STOCK_INSUFFICIENT = "菜品库存不足";
+    public static final String ADDRESS_BOOK_GET_FAILED = "地址簿获取失败";
+    public static final String ADDRESS_BOOK_GET_TIMEOUT = "地址簿获取超时";
+    public static final String ASYNC_TIMEOUT = "异步任务执行超时";
 }

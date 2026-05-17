@@ -9,12 +9,14 @@ import com.smart.exception.DishBusinessException;
 import com.smart.exception.ShoppingCartBusinessException;
 import com.smart.mapper.*;
 import com.smart.service.OrderService;
+import com.smart.utils.CompletableFutureUtil;
 import com.smart.vo.OrderSubmitVO;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.rocketmq.client.producer.SendCallback;
 import org.apache.rocketmq.client.producer.SendResult;
 import org.apache.rocketmq.spring.core.RocketMQTemplate;
 import org.springframework.beans.BeanUtils;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.messaging.Message;
 import org.springframework.messaging.support.MessageBuilder;
 import org.springframework.stereotype.Service;
@@ -22,6 +24,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.*;
+import java.util.concurrent.*;
 
 @Service
 @Slf4j
@@ -39,13 +42,17 @@ public class OrderServiceImpl implements OrderService {
 
     private final DishMapper dishMapper;
 
-    public OrderServiceImpl(OrderMapper orderMapper, OrderDetailMapper orderDetailMapper, AddressBookMapper addressBookMapper, ShoppingCartMapper shoppingCartMapper, RocketMQTemplate rocketMQTemplate, DishMapper dishMapper) {
+    @Qualifier("orderTaskExecutor")
+    private final Executor orderTaskExecutor;
+
+    public OrderServiceImpl(OrderMapper orderMapper, OrderDetailMapper orderDetailMapper, AddressBookMapper addressBookMapper, ShoppingCartMapper shoppingCartMapper, RocketMQTemplate rocketMQTemplate, DishMapper dishMapper, Executor orderTaskExecutor) {
         this.orderMapper = orderMapper;
         this.orderDetailMapper = orderDetailMapper;
         this.addressBookMapper = addressBookMapper;
         this.shoppingCartMapper = shoppingCartMapper;
         this.rocketMQTemplate = rocketMQTemplate;
         this.dishMapper = dishMapper;
+        this.orderTaskExecutor = orderTaskExecutor;
     }
 
     /**
@@ -55,69 +62,88 @@ public class OrderServiceImpl implements OrderService {
      * @return 订单确认数据
      */
     @Override
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public OrderSubmitVO submitOrder(OrdersSubmitDTO ordersSubmitDTO) {
-        // 1. 获取地址消息，判断地址簿是否为空，空则抛出异常
-        AddressBook addressBook = addressBookMapper.getById(ordersSubmitDTO.getAddressBookId());
-        if (addressBook == null) {
-            //抛出业务异常
-            throw new AddressBookBusinessException(MessageConstant.ADDRESS_BOOK_IS_NULL);
-        }
-
         Long userId = BaseContext.getCurrentId();
 
-        // 2. 获取购物车信息
-        ShoppingCart shoppingCart = ShoppingCart.builder()
-                .userId(userId)
-                .build();
-        List<ShoppingCart> shoppingCarts = shoppingCartMapper.list(shoppingCart);
-        if (shoppingCarts == null || shoppingCarts.isEmpty()) {
-            // 购物车信息为空，抛出业务异常
-            throw new ShoppingCartBusinessException(MessageConstant.SHOPPING_CART_IS_NULL);
-        }
-
-        // 3. 获取菜品信息，进行库存校验，扣减库存
-        shoppingCarts.forEach(cart -> {
-            Dish dish = dishMapper.getById(cart.getDishId());
-            if (dish.getStock() < cart.getNumber()) {
-                // 菜品库存不足，抛出业务异常
-                throw new DishBusinessException(MessageConstant.DISH_STOCK_INSUFFICIENT);
+        // 1. 异步获取地址簿（工具类处理异常）
+        CompletableFuture<AddressBook> addressBookFuture = CompletableFutureUtil.supplyAsync(() -> {
+            // 获取地址簿
+            AddressBook addressBook = addressBookMapper.getById(ordersSubmitDTO.getAddressBookId());
+            // 判断地址簿是否为空
+            if (addressBook == null) {
+                // 空则抛出异常
+                throw new AddressBookBusinessException(MessageConstant.ADDRESS_BOOK_IS_NULL);
             }
-            log.info("当前库存为：{}-{}",dish.getName(), dish.getStock());
-            log.info("购物车项菜品数量为：{}-{}",cart.getName(), cart.getNumber());
-            log.info("扣减后的库存为：{}", dish.getStock()-cart.getNumber());
-            dish.setStock(dish.getStock() - cart.getNumber());
-            dishMapper.update(dish);
-        });
+            return addressBook;
+        }, orderTaskExecutor);
 
-        // 4. 插入订单数据
+        // 2. 异步处理购物车和库存扣减
+        CompletableFuture<List<ShoppingCart>> shoppingCartFuture = CompletableFutureUtil.supplyAsync(() -> {
+            // 获取购物车数据
+            ShoppingCart shoppingCart = ShoppingCart.builder().userId(userId).build();
+            List<ShoppingCart> shoppingCarts = shoppingCartMapper.list(shoppingCart);
+            // 判断购物车数据是否为空
+            if (shoppingCarts == null || shoppingCarts.isEmpty()) {
+                // 空则抛出异常
+                throw new ShoppingCartBusinessException(MessageConstant.SHOPPING_CART_IS_NULL);
+            }
+            // 扣减库存
+            shoppingCarts.forEach(cart -> {
+                // 获取菜品数据
+                Dish dish = dishMapper.getById(cart.getDishId());
+                // 判断库存是否充足
+                if (dish.getStock() < cart.getNumber()) {
+                    // 不足抛出异常
+                    throw new DishBusinessException(MessageConstant.DISH_STOCK_INSUFFICIENT);
+                }
+                // 扣减库存
+                dish.setStock(dish.getStock() - cart.getNumber());
+                dishMapper.update(dish);
+            });
+            return shoppingCarts;
+        }, orderTaskExecutor);
+
+        // 3. 等待所有异步任务完成（工具类统一处理异常）
+        CompletableFutureUtil.allOf(addressBookFuture, shoppingCartFuture);
+
+        // 4. 获取结果
+        /*
+          工具类中的allOf已经对并行任务的异常进行了统一处理
+          所以执行到这里说明并行任务正常执行完毕，只需要等待完成并获取结果
+          而get()带有checked异常，所以使用get()又要多余使用try-catch块捕获不存在的异常
+          ，join()会抛出unchecked CompletionException，可以不捕获，所以使用join()，可以让代码更简洁
+         */
+        AddressBook addressBook = addressBookFuture.join();
+        List<ShoppingCart> shoppingCarts = shoppingCartFuture.join();
+
+        // 5. 插入订单数据
         Orders orders = new Orders();
         BeanUtils.copyProperties(ordersSubmitDTO, orders);
         orders.setOrderTime(LocalDateTime.now());
         orders.setPayStatus(Orders.UN_PAID);
         orders.setStatus(Orders.PENDING_PAYMENT);
-        orders.setNumber(String.valueOf(System.currentTimeMillis())+ userId);
+        orders.setNumber(String.valueOf(System.currentTimeMillis()) + userId);
         orders.setPhone(addressBook.getPhone());
-        orders.setConsignee(addressBook.getConsignee());//收货人
-        orders.setAddress(addressBook.getCityName() + addressBook.getDistrictName() + addressBook.getDetail());//收获地址
+        orders.setConsignee(addressBook.getConsignee());
+        orders.setAddress(addressBook.getCityName() + addressBook.getDistrictName() + addressBook.getDetail());
         orders.setUserId(userId);
-
         orderMapper.insert(orders);
 
+        // 6. 插入订单明细
         List<OrderDetail> orderDetails = new ArrayList<>();
-        // 5. 插入n条订单明细数据
         for (ShoppingCart cart : shoppingCarts) {
             OrderDetail orderDetail = new OrderDetail();
             BeanUtils.copyProperties(cart, orderDetail);
-            orderDetail.setOrderId(orders.getId());//获取订单id
+            orderDetail.setOrderId(orders.getId());
             orderDetails.add(orderDetail);
         }
         orderDetailMapper.insertBath(orderDetails);
 
-        // 6. 清空购物车数据
+        // 7. 清空购物车
         shoppingCartMapper.deleteByUserId(userId);
 
-        // 7. 发送延迟消息 在用户下单后30分钟内未支付则取消该订单，并补偿库存
+        // 8. 发送延迟消息
         Message<String> message = MessageBuilder.withPayload(orders.getNumber() + "-" + orders.getId()).build();
         rocketMQTemplate.asyncSend("orderTopic", message, new SendCallback() {
             @Override
@@ -129,9 +155,9 @@ public class OrderServiceImpl implements OrderService {
             public void onException(Throwable throwable) {
                 log.error("发送取消订单延迟消息失败");
             }
-        }, 30000, 3/*16*/);
+        }, 30000, 3);
 
-        // 8. 封装VO并返回结果
+        // 9. 返回结果
         return OrderSubmitVO.builder()
                 .id(orders.getId())
                 .orderNumber(orders.getNumber())
