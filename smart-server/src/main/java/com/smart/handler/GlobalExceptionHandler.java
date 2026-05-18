@@ -1,6 +1,7 @@
 package com.smart.handler;
 
 import com.smart.exception.BaseException;
+import com.smart.exception.SystemException;
 import com.smart.result.Result;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
@@ -24,7 +25,18 @@ public class GlobalExceptionHandler {
      */
     @ExceptionHandler(BaseException.class)
     public Result<T> exceptionHandler(HttpServletRequest request, BaseException ex){
-        log.error("异常信息：{}", ex.getMessage());
+        log.error("业务异常信息：{}", ex.getMessage());
+        return Result.error(ex.getMessage());
+    }
+
+    /**
+     * 捕获系统异常
+     * @param ex 系统异常
+     * @return 错误信息
+     */
+    @ExceptionHandler(SystemException.class)
+    public Result<T> exceptionHandler(HttpServletRequest request, SystemException ex){
+        log.error("系统异常信息：{}", ex.getMessage());
         return Result.error(ex.getMessage());
     }
 }
