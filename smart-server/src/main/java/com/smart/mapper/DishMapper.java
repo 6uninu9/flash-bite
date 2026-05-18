@@ -2,8 +2,8 @@ package com.smart.mapper;
 
 import com.smart.entity.Dish;
 import org.apache.ibatis.annotations.Mapper;
-import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
+import org.apache.ibatis.annotations.Update;
 
 import java.util.List;
 
@@ -30,4 +30,12 @@ public interface DishMapper {
      * @param dish 菜品数据
      */
     void update(Dish dish);
+
+    /**
+     * 扣减菜品库存
+     * @param dishId 菜品id
+     * @param number 扣减数量
+     */
+    @Update("update dish set stock = stock - #{number} where id = #{dishId} and stock >= #{number}")
+    void deductStockByDishId(Long dishId, Integer number);
 }

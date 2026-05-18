@@ -90,16 +90,8 @@ public class OrderServiceImpl implements OrderService {
             }
             // 扣减库存
             shoppingCarts.forEach(cart -> {
-                // 获取菜品数据
-                Dish dish = dishMapper.getById(cart.getDishId());
-                // 判断库存是否充足
-                if (dish.getStock() < cart.getNumber()) {
-                    // 不足抛出异常
-                    throw new DishBusinessException(MessageConstant.DISH_STOCK_INSUFFICIENT);
-                }
-                // 扣减库存
-                dish.setStock(dish.getStock() - cart.getNumber());
-                dishMapper.update(dish);
+                // 使用数据库行锁+乐观锁，避免并发问题和超卖
+                dishMapper.deductStockByDishId(cart.getDishId(), cart.getNumber());
             });
             return shoppingCarts;
         }, orderTaskExecutor);
@@ -155,7 +147,7 @@ public class OrderServiceImpl implements OrderService {
             public void onException(Throwable throwable) {
                 log.error("发送取消订单延迟消息失败");
             }
-        }, 30000, 3);
+        }, 30000, 16);
 
         // 9. 返回结果
         return OrderSubmitVO.builder()
