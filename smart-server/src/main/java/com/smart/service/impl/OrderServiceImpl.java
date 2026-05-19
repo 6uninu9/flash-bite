@@ -5,7 +5,6 @@ import com.smart.context.BaseContext;
 import com.smart.dto.OrdersSubmitDTO;
 import com.smart.entity.*;
 import com.smart.exception.AddressBookBusinessException;
-import com.smart.exception.DishBusinessException;
 import com.smart.exception.ShoppingCartBusinessException;
 import com.smart.mapper.*;
 import com.smart.service.OrderService;
@@ -22,6 +21,8 @@ import org.springframework.messaging.support.MessageBuilder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.LocalDateTime;
 import java.util.*;
 import java.util.concurrent.*;
@@ -42,17 +43,23 @@ public class OrderServiceImpl implements OrderService {
 
     private final DishMapper dishMapper;
 
+    private final CouponMapper couponMapper;
+
     @Qualifier("orderTaskExecutor")
     private final Executor orderTaskExecutor;
 
-    public OrderServiceImpl(OrderMapper orderMapper, OrderDetailMapper orderDetailMapper, AddressBookMapper addressBookMapper, ShoppingCartMapper shoppingCartMapper, RocketMQTemplate rocketMQTemplate, DishMapper dishMapper, Executor orderTaskExecutor) {
+    private final UserCouponMapper userCouponMapper;
+
+    public OrderServiceImpl(OrderMapper orderMapper, OrderDetailMapper orderDetailMapper, AddressBookMapper addressBookMapper, ShoppingCartMapper shoppingCartMapper, RocketMQTemplate rocketMQTemplate, DishMapper dishMapper, CouponMapper couponMapper, Executor orderTaskExecutor, UserCouponMapper userCouponMapper) {
         this.orderMapper = orderMapper;
         this.orderDetailMapper = orderDetailMapper;
         this.addressBookMapper = addressBookMapper;
         this.shoppingCartMapper = shoppingCartMapper;
         this.rocketMQTemplate = rocketMQTemplate;
         this.dishMapper = dishMapper;
+        this.couponMapper = couponMapper;
         this.orderTaskExecutor = orderTaskExecutor;
+        this.userCouponMapper = userCouponMapper;
     }
 
     /**
@@ -64,7 +71,10 @@ public class OrderServiceImpl implements OrderService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public OrderSubmitVO submitOrder(OrdersSubmitDTO ordersSubmitDTO) {
+        // 获取用户id
         Long userId = BaseContext.getCurrentId();
+        // 获取优惠卷id集合
+        List<Long> couponIds = ordersSubmitDTO.getCouponId();
 
         // 1. 异步获取地址簿（工具类处理异常）
         CompletableFuture<AddressBook> addressBookFuture = CompletableFutureUtil.supplyAsync(() -> {
@@ -96,10 +106,28 @@ public class OrderServiceImpl implements OrderService {
             return shoppingCarts;
         }, orderTaskExecutor);
 
-        // 3. 等待所有异步任务完成（工具类统一处理异常）
-        CompletableFutureUtil.allOf(addressBookFuture, shoppingCartFuture);
+        // 3. 异步查询查询优惠卷获取扣减金额
+        // 能够选择的优惠卷应该由前端筛选，所以这里只需计算前端传来的优惠卷id对应的优惠金额总和并返回即可
+        CompletableFuture<BigDecimal> couponFuture = CompletableFutureUtil.supplyAsync(() -> {
+            // 优惠卷id集合为空则返回0
+            if (couponIds == null || couponIds.isEmpty()){
+                return BigDecimal.ZERO;
+            }
+            // 获取优惠卷集合
+            List<Coupon> coupons = couponMapper.selectBatchById(couponIds);
+            // 获取优惠卷集合中的优惠金额并返回
+            return coupons.stream() // 把优惠券列表转换成 Stream 流
+                    .filter(Objects::nonNull) // 过滤出不为空的对象
+                    .map(Coupon::getDiscountAmount) // 类型转换，把流里的每一个优惠券对象，转换成对应的优惠金额
+                    .reduce(BigDecimal.ZERO,BigDecimal::add) // 聚合计算，把流里的多个数据合并成一个数据，即将BigDecimal.ZERO与其他优惠金额进行相加
+                    .setScale(2, RoundingMode.HALF_UP); // 将计算出的总金额保留 2 位小数 + 四舍五入
+        }, orderTaskExecutor);
 
-        // 4. 获取结果
+
+        // 4. 等待所有异步任务完成（工具类统一处理异常）
+        CompletableFutureUtil.allOf(addressBookFuture, shoppingCartFuture, couponFuture);
+
+        // 5. 获取结果
         /*
           工具类中的allOf已经对并行任务的异常进行了统一处理
           所以执行到这里说明并行任务正常执行完毕，只需要等待完成并获取结果
@@ -108,13 +136,16 @@ public class OrderServiceImpl implements OrderService {
          */
         AddressBook addressBook = addressBookFuture.join();
         List<ShoppingCart> shoppingCarts = shoppingCartFuture.join();
+        BigDecimal couponAmount = couponFuture.join();
 
-        // 5. 插入订单数据
+        // 6. 插入订单数据
         Orders orders = new Orders();
         BeanUtils.copyProperties(ordersSubmitDTO, orders);
+        BigDecimal amount = ordersSubmitDTO.getAmount().subtract(couponAmount);
         orders.setOrderTime(LocalDateTime.now());
         orders.setPayStatus(Orders.UN_PAID);
         orders.setStatus(Orders.PENDING_PAYMENT);
+        orders.setAmount(amount);
         orders.setNumber(String.valueOf(System.currentTimeMillis()) + userId);
         orders.setPhone(addressBook.getPhone());
         orders.setConsignee(addressBook.getConsignee());
@@ -122,7 +153,7 @@ public class OrderServiceImpl implements OrderService {
         orders.setUserId(userId);
         orderMapper.insert(orders);
 
-        // 6. 插入订单明细
+        // 7. 插入订单明细
         List<OrderDetail> orderDetails = new ArrayList<>();
         for (ShoppingCart cart : shoppingCarts) {
             OrderDetail orderDetail = new OrderDetail();
@@ -132,10 +163,10 @@ public class OrderServiceImpl implements OrderService {
         }
         orderDetailMapper.insertBath(orderDetails);
 
-        // 7. 清空购物车
+        // 8. 清空购物车
         shoppingCartMapper.deleteByUserId(userId);
 
-        // 8. 发送延迟消息
+        // 9. 发送延迟消息
         Message<String> message = MessageBuilder.withPayload(orders.getNumber() + "-" + orders.getId()).build();
         rocketMQTemplate.asyncSend("orderTopic", message, new SendCallback() {
             @Override
@@ -149,12 +180,12 @@ public class OrderServiceImpl implements OrderService {
             }
         }, 30000, 16);
 
-        // 9. 返回结果
+        // 10. 返回结果
         return OrderSubmitVO.builder()
                 .id(orders.getId())
                 .orderNumber(orders.getNumber())
                 .orderTime(orders.getOrderTime())
-                .orderAmount(orders.getAmount())
+                .orderAmount(amount)
                 .build();
     }
 

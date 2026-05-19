@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd" >
+<mapper namespace="com.smart.mapper.CouponMapper">
+    <select id="list" resultType="com.smart.entity.Coupon" parameterType="com.smart.entity.Coupon">
+        select id, coupon_name, coupon_type, threshold_amount, discount_amount, total_stock, surplus_stock, start_time,
+        end_time, valid_days, status, create_user, update_user, create_time, update_time, is_seckill
+        from coupon
+        <where>
+            <if test="couponName != null">
+                and coupon_name like concat('%',#{couponName},'%')
+            </if>
+            <if test="couponType != null">
+                and coupon_type = #{couponType}
+            </if>
+            <if test="thresholdAmount != null">
+                and threshold_amount = #{thresholdAmount}
+            </if>
+            <if test="discountAmount != null">
+                and discount_amount = #{discountAmount}
+            </if>
+            <if test="totalStock != null">
+                and total_stock = #{totalStock}
+            </if>
+            <if test="surplusStock != null">
+                and surplus_stock = #{surplusStock}
+            </if>
+            <if test="status != null">
+                and status = #{status}
+            </if>
+            <if test="isSeckill != null">
+                and is_seckill = #{isSeckill}
+            </if>
+        </where>
+        order by create_time desc
+    </select>
+    <select id="selectBatchById" resultType="com.smart.entity.Coupon">
+        select id, coupon_name, coupon_type, threshold_amount, discount_amount, total_stock, surplus_stock, start_time,
+        end_time, valid_days, status, create_user, update_user, create_time, update_time, is_seckill
+        from coupon
+        where id in
+        <foreach collection="couponIds" item="item" open="(" separator="," close=")">
+            #{item}
+        </foreach>
+    </select>
+</mapper>
