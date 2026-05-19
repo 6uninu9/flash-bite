@@ -29,4 +29,9 @@ public class CacheKeyConstants {
      * 热分类缓存的Key前缀
      */
     public static final String HOT_CATEGORY_KEY_PREFIX = "cache:category:hot:";
+
+    /**
+     * 秒杀优惠券库存Key前缀
+     */
+    public static final String SECKILL_COUPON_STOCK_KEY = "seckkill:coupon:stock:";
 }

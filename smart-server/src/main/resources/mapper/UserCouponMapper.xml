@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd" >
+<mapper namespace="com.smart.mapper.UserCouponMapper">
+    <update id="updateBathStatus">
+        UPDATE user_coupon
+        SET
+        status = #{status},
+        -- 使用时间（如果是改为已使用，自动赋值使用时间）
+        use_time = IF(#{status} = 1, NOW(), use_time)
+        WHERE
+        user_id = #{userId}
+        <if test="couponIds != null and couponIds.size() > 0">
+            AND coupon_id IN
+            <foreach collection="couponIds" item="item" open="(" separator="," close=")">
+                #{item}
+            </foreach>
+        </if>
+    </update>
+</mapper>
