@@ -78,7 +78,7 @@ public class OrderServiceImpl implements OrderService {
             return addressBook;
         }, orderTaskExecutor);
 
-        // 2. 异步处理购物车和库存扣减
+        // 2. 异步查询购物车
         CompletableFuture<List<ShoppingCart>> shoppingCartFuture = CompletableFutureUtil.supplyAsync(() -> {
             // 获取购物车数据
             ShoppingCart shoppingCart = ShoppingCart.builder().userId(userId).build();
@@ -88,11 +88,6 @@ public class OrderServiceImpl implements OrderService {
                 // 空则抛出异常
                 throw new ShoppingCartBusinessException(MessageConstant.SHOPPING_CART_IS_NULL);
             }
-            // 扣减库存
-            shoppingCarts.forEach(cart -> {
-                // 使用数据库行锁+乐观锁，避免并发问题和超卖
-                dishMapper.deductStockByDishId(cart.getDishId(), cart.getNumber());
-            });
             return shoppingCarts;
         }, orderTaskExecutor);
 
@@ -132,10 +127,17 @@ public class OrderServiceImpl implements OrderService {
         }
         orderDetailMapper.insertBath(orderDetails);
 
-        // 7. 清空购物车
+        // 7. 扣减库存
+        // 将扣减库存提取到主线程，因为异步线程脱离事务，发生异常无法回滚
+        shoppingCarts.forEach(cart -> {
+            // 使用数据库行锁+乐观锁，避免并发问题和超卖
+            dishMapper.deductStockByDishId(cart.getDishId(), cart.getNumber());
+        });
+
+        // 8. 清空购物车
         shoppingCartMapper.deleteByUserId(userId);
 
-        // 8. 发送延迟消息
+        // 9. 发送延迟消息
         Message<String> message = MessageBuilder.withPayload(orders.getNumber() + "-" + orders.getId()).build();
         rocketMQTemplate.asyncSend("orderTopic", message, new SendCallback() {
             @Override
@@ -149,7 +151,7 @@ public class OrderServiceImpl implements OrderService {
             }
         }, 30000, 16);
 
-        // 9. 返回结果
+        // 10. 返回结果
         return OrderSubmitVO.builder()
                 .id(orders.getId())
                 .orderNumber(orders.getNumber())
