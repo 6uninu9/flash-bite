@@ -22,7 +22,6 @@ public interface OrderService {
     /**
      * 取消订单并释放库存
      * @param orderId 订单id
-     * @param number 订单编号
      */
-    void cancelOrderAndReleaseStock(String orderId, String number);
+    void cancelOrderAndReleaseStock(String orderId);
 }

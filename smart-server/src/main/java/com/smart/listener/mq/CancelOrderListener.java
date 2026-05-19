@@ -37,6 +37,8 @@ public class CancelOrderListener implements RocketMQListener<MessageExt> {
 
     private static final String IDENTITY_KEY = "idempotent:order:cancel:";
 
+    private static final String LOCK_KEY = "lock:cancelOrder:" ;
+
     public CancelOrderListener(OrderService orderService, RedissonClient redissonClient, StringRedisTemplate stringRedisTemplate) {
         this.orderService = orderService;
         this.redissonClient = redissonClient;
@@ -79,7 +81,7 @@ public class CancelOrderListener implements RocketMQListener<MessageExt> {
         // 需要加锁 因为释放mysql库存时需要查询计算再修改，不然就使用数据库行锁
 
         // 4. 创建锁
-        RLock lock = redissonClient.getLock("lock:cancelOrder:" + orderId);
+        RLock lock = redissonClient.getLock(LOCK_KEY + orderId);
 
         boolean locked = false;
         try {
@@ -94,17 +96,17 @@ public class CancelOrderListener implements RocketMQListener<MessageExt> {
             }
 
             // 7. 修改订单状态为取消 并释放库存
-            orderService.cancelOrderAndReleaseStock(orderId, number);
+            orderService.cancelOrderAndReleaseStock(orderId);
 
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             // 报错 则删除幂等标识
-            stringRedisTemplate.delete(IDENTITY_KEY);
+            stringRedisTemplate.delete(IDENTITY_KEY + number);
             throw new RuntimeException("线程中断", e);
         } catch (Exception e) { // 如果mysql取消订单释放库存异常 则不会继续往下执行
             log.error("取消订单失败", e);
             // 报错 则删除幂等标识
-            stringRedisTemplate.delete(IDENTITY_KEY);
+            stringRedisTemplate.delete(IDENTITY_KEY + number);
             throw new RuntimeException("取消订单失败", e);
         } finally {
             // 8. 释放锁

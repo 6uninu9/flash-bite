@@ -173,11 +173,10 @@ public class OrderServiceImpl implements OrderService {
      * 取消订单并释放库存
      *
      * @param orderId 订单id
-     * @param number  订单号
      */
     @Override
     @Transactional(rollbackFor = Exception.class)
-    public void cancelOrderAndReleaseStock(String orderId, String number) {
+    public void cancelOrderAndReleaseStock(String orderId) {
         // 1. 取消订单
         Orders orders = Orders.builder()
                 .id(Long.valueOf(orderId))
