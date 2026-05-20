@@ -63,14 +63,21 @@ public class CouponServiceImpl implements CouponService {
     public void seckill(Long couponId) {
         // 1. 构建去重键（唯一卷） 避免用户重复抢卷
         Long userId = BaseContext.getCurrentId();
-        String uk = "seckill:" + couponId + ":" + userId; // 构建去重键
 
-        // 2. 使用setnx写入Redis缓存完成去重
-        // 写入成功 则代表用户没有领取过优惠券
-        // 写入失败 则代表用户已经领取过优惠券
-        // 没有设置过期时间 主要因为设置过期时间需要再次查询优惠卷获取活动过期时间 影响性能
-        // 可以通过定时任务定期轮询将活动过期的用户去重键删除
-        if (Boolean.FALSE.equals(stringRedisTemplate.opsForValue().setIfAbsent(uk,EMPTY_VALUE))){
+        // 2. 使用redis的Set集合存储用户id完成去重
+        // 不使用setnx写入Redis缓存完成去重原因在于：
+        //  - 若用 SETNX 为每个用户+优惠券组合创建一个独立的Key，会导致大量零散Key（如 "seckill:couponId:123:456"）
+        //    使用定时任务轮询删除这些去重键时 需要扫描大量的去重有seckill:couponId:前缀的key 损耗性能的同时会造成堵塞
+        // 而使用Set集合的原因在于：
+        //  - 每个优惠券只对应一个 Set Key（如 "dedup:seckill:coupon:123"），清理时只需直接删除该Key即可，O(1)操作
+        //  - Set 内部自动去重，判断用户是否已领取只需执行 sadd 命令，根据返回值（0表示已存在）即可快速拒绝重复领取
+        // 2.1. 设置Set集合的key和member
+        String setKey = CacheKeyConstants.SECKILL_COUPON_TAKE_DEDUP_KEY_PREFIX + couponId;   // 例如 "seckill:coupon:123"
+        String member = String.valueOf(userId);         // 成员是 userId
+        // 2.2. 将用户id写入Set集合
+        Long addResult = stringRedisTemplate.opsForSet().add(setKey, member);
+        // 2.3. 判断是否写入成功，如果失败则代表用户领取过该优惠券
+        if (addResult == null || addResult == 0) {
             log.info("用户{}已经领取过优惠券{}", userId, couponId);
             throw new BaseException(MessageConstant.USER_ALREADY_RECEIVED);
         }

@@ -34,4 +34,9 @@ public class CacheKeyConstants {
      * 秒杀优惠券库存Key前缀
      */
     public static final String SECKILL_COUPON_STOCK_KEY = "seckkill:coupon:stock:";
+
+    /**
+     * 秒杀优惠券领取去重Key前缀
+     */
+    public static final String SECKILL_COUPON_TAKE_DEDUP_KEY_PREFIX = "dedup:seckill:coupon:";
 }
