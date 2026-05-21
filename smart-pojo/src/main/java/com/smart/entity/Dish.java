@@ -19,6 +19,11 @@ import java.time.LocalDateTime;
 @AllArgsConstructor
 public class Dish implements Serializable {
 
+    // 停售
+    public static final Integer DISABLE = 0;
+    // 起售
+    public static final Integer ENABLE = 1;
+
     @Serial
     private static final long serialVersionUID = 1L;
 

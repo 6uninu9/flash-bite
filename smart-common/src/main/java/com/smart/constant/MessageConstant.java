@@ -28,4 +28,7 @@ public class MessageConstant {
     public static final String ASYNC_TIMEOUT = "异步任务执行超时";
     public static final String COUPON_STOCK_NOT_ENOUGH = "优惠券已被抢完";
     public static final String USER_ALREADY_RECEIVED = "用户已领取过该优惠券";
+    public static final String COUPON_OCCUPIED_BY_OTHER_ORDER = "优惠券已被其他订单占用";
+    public static final String DISH_SOLD_OUT = "菜品已卖完";
+    public static final String DISH_IS_NOT_AVAILABLE = "菜品不可用";
 }
