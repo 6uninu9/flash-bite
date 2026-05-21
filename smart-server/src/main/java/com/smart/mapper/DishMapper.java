@@ -33,9 +33,11 @@ public interface DishMapper {
 
     /**
      * 扣减菜品库存
+     *
      * @param dishId 菜品id
      * @param number 扣减数量
+     * @return 影响行数
      */
     @Update("update dish set stock = stock - #{number} where id = #{dishId} and stock >= #{number}")
-    void deductStockByDishId(Long dishId, Integer number);
+    int deductStockByDishId(Long dishId, Integer number);
 }
