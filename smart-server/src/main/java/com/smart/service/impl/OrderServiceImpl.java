@@ -1,18 +1,20 @@
 package com.smart.service.impl;
 
+import com.alibaba.fastjson.JSONObject;
+import com.alibaba.fastjson2.JSON;
 import com.smart.constant.CacheKeyConstants;
 import com.smart.constant.MessageConstant;
 import com.smart.context.BaseContext;
+import com.smart.dto.OrdersPaymentDTO;
 import com.smart.dto.OrdersSubmitDTO;
 import com.smart.entity.*;
-import com.smart.exception.AddressBookBusinessException;
-import com.smart.exception.BaseException;
-import com.smart.exception.DishBusinessException;
-import com.smart.exception.ShoppingCartBusinessException;
+import com.smart.exception.*;
 import com.smart.mapper.*;
 import com.smart.service.OrderService;
 import com.smart.utils.CompletableFutureUtil;
+import com.smart.vo.OrderPaymentVO;
 import com.smart.vo.OrderSubmitVO;
+import com.smart.websocket.WebSocketServer;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.rocketmq.client.producer.SendCallback;
 import org.apache.rocketmq.client.producer.SendResult;
@@ -24,6 +26,7 @@ import org.springframework.messaging.Message;
 import org.springframework.messaging.support.MessageBuilder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.StringUtils;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -54,7 +57,9 @@ public class OrderServiceImpl implements OrderService {
 
     private final StringRedisTemplate stringRedisTemplate;
 
-    public OrderServiceImpl(OrderMapper orderMapper, OrderDetailMapper orderDetailMapper, AddressBookMapper addressBookMapper, ShoppingCartMapper shoppingCartMapper, RocketMQTemplate rocketMQTemplate, DishMapper dishMapper, CouponMapper couponMapper, Executor orderTaskExecutor, StringRedisTemplate stringRedisTemplate) {
+    private final UserCouponMapper userCouponMapper;
+
+    public OrderServiceImpl(OrderMapper orderMapper, OrderDetailMapper orderDetailMapper, AddressBookMapper addressBookMapper, ShoppingCartMapper shoppingCartMapper, RocketMQTemplate rocketMQTemplate, DishMapper dishMapper, CouponMapper couponMapper, Executor orderTaskExecutor, StringRedisTemplate stringRedisTemplate, UserCouponMapper userCouponMapper) {
         this.orderMapper = orderMapper;
         this.orderDetailMapper = orderDetailMapper;
         this.addressBookMapper = addressBookMapper;
@@ -64,6 +69,7 @@ public class OrderServiceImpl implements OrderService {
         this.couponMapper = couponMapper;
         this.orderTaskExecutor = orderTaskExecutor;
         this.stringRedisTemplate = stringRedisTemplate;
+        this.userCouponMapper = userCouponMapper;
     }
 
     /**
@@ -130,7 +136,7 @@ public class OrderServiceImpl implements OrderService {
                     // 获取菜品
                     Dish dish = dishMapper.getById(shCart.getDishId());
                     // 判断菜品是否为空或者状态是否为停售
-                    if (dish == null|| Objects.equals(dish.getStatus(), Dish.DISABLE)){
+                    if (dish == null || Objects.equals(dish.getStatus(), Dish.DISABLE)) {
                         // 空或者停售则抛出异常 终止下单
                         throw new DishBusinessException(MessageConstant.DISH_IS_NOT_AVAILABLE);
                     }
@@ -283,5 +289,101 @@ public class OrderServiceImpl implements OrderService {
                     .build();
             dishMapper.update(newDish);
         });
+    }
+
+    /**
+     * 订单支付
+     * 原本的完整的支付流程：
+     * 1. 前端点击支付，调用 /order/payment，返回真实预支付交易单给前端
+     * 2. 前端收到真实预支付交易单后，调用微信支付接口，生成微信支付二维码
+     * 3. 前端付款成功后，微信服务器自动调用的回调接口 /paySuccess
+     * 4. 在/paySuccess 中完成修改订单为 已支付+待接单、核销优惠券，WebSocket 推送商家，
+     * 最后返回支付成功的信息给前端，显示支付成功
+     * 但是由于真实的支付中返回的OrderPaymentVO需要微信商户号才能调用微信官方 SDK，弹出微信支付界面，让用户扫码 / 输密码付款
+     * 而只有企业才能获取微信商户号，所以这里只能模拟微信支付成功，直接省略了回调过程，
+     * 直接完成修改订单为 已支付+待接单、核销优惠券，WebSocket 推送商家操作
+     *
+     * @param ordersPaymentDTO 支付数据
+     * @return 订单支付结果
+     */
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public OrderPaymentVO payment(OrdersPaymentDTO ordersPaymentDTO) {
+        if (ordersPaymentDTO == null){
+            throw new OrderBusinessException(MessageConstant.PAY_PARAM_ERROR);
+        }
+
+        Long userId = BaseContext.getCurrentId();
+        String orderNumber = ordersPaymentDTO.getOrderNumber();
+        if (!StringUtils.hasText(orderNumber)){
+            throw new OrderBusinessException(MessageConstant.ORDER_NUMBER_IS_NULL);
+        }
+        Integer payMethod = ordersPaymentDTO.getPayMethod();
+        if (payMethod == null|| !payMethod.equals(Orders.PAYMETHOD_WECHAT) && !payMethod.equals(Orders.PAYMETHOD_ALIPAY)){
+            throw new OrderBusinessException(MessageConstant.PAY_METHOD_ERROR);
+        }
+        Long merchantId = ordersPaymentDTO.getMerchantId();
+        if (merchantId == null){
+            throw new OrderBusinessException(MessageConstant.MERCHANT_NO_IS_NULL);
+        }
+
+        // 获取订单判断订单是否已经支付，避免重复支付
+        Orders existOrder = orderMapper.getByNumber(orderNumber);
+        if (existOrder == null){
+            throw new OrderBusinessException(MessageConstant.ORDER_NOT_FOUND);
+        }
+        if (Objects.equals(existOrder.getPayStatus(), Orders.PAID)) {
+            throw new OrderBusinessException(MessageConstant.REPEAT_PAYMENT);
+        }
+
+        // 调用微信支付接口，生成预支付交易单
+        // 但是,由于没有企业来注册商户号无法实现微信支付，所以这里只模拟微信支付成功
+//        User user = userMapper.getById(userId);
+//        JSONObject jsonObject = weChatPayUtil.pay(
+//                ordersPaymentDTO.getOrderNumber(), //商户订单号
+//                new BigDecimal(0.01), //支付金额，单位 元
+//                "云穹外卖订单", //商品描述
+//                user.getOpenid() //微信用户的openid
+//        );
+//
+//        if (jsonObject.getString("code") != null && jsonObject.getString("code").equals("ORDERPAID")) {
+//            throw new OrderBusinessException("该订单已支付");
+//        }
+        // 构建返回给前端的预支付交易单，以模拟微信支付成功
+        JSONObject jsonObject = new JSONObject();
+        jsonObject.put("code", "ORDERPAID");
+        OrderPaymentVO vo = jsonObject.toJavaObject(OrderPaymentVO.class);
+        vo.setPackageStr(jsonObject.getString("package"));
+
+        // 修改订单状态为待接单和已支付
+        orderMapper.updateStatus(Orders.TO_BE_CONFIRMED, Orders.PAID, orderNumber);
+
+        // 将订单中使用的优惠卷改为已使用
+        // 根据订单id和用户id查询订单使用的优惠卷
+        List<UserCoupon> couponUser = userCouponMapper.getByOrderIdAndUserId(existOrder.getId(), userId);
+        // 如果有使用优惠卷则将优惠卷改为已使用
+        if (couponUser != null && !couponUser.isEmpty()) {
+            // 获取优惠卷id集合
+            List<Long> couponUserIds = couponUser.stream().map(UserCoupon::getCouponId).toList();
+            // 批量修改优惠卷状态为已使用
+            userCouponMapper.updateBathStatus(couponUserIds, userId, UserCoupon.STATUS_USED);
+        }
+
+        // 对商家进行来单提醒
+        // 整体流程如下：
+        // 1. 商家端登录后，会将一个 merchantId （商家id，唯一标识）和 JWT 令牌（令牌过期时间一般来说至少一天）一起返回给前端
+        //    不过，一般来说会将merchantId放进 JWT 令牌中，让前端解析出merchantId
+        // 2. 前端会利用会将一个 merchantId 与服务端建立 WebSocket 连接，
+        //    即WebSocketServer中的@OnOpen 方法被触发，将 session 以 merchantId 为 key 存入 SESSION_MAP，
+        //    之后连接保持长连接，以随时可以接收后端推送的消息。
+        // 3. 用户在支付时请求体携带 merchantId，服务端接收到 merchantId 后调用 sendToAllClient 方法对商家发起来单提醒
+        // 4. 商家退出登录后，前端主动关闭 WebSocket 连接，而后端 @OnClose 会自动从 SESSION_MAP 中移除该 merchantId 的会话。
+        Map<String, Object> map = new HashMap<>();
+        map.put("type", 1);//1表示来单提醒 2表示催单
+        map.put("orderId", Math.toIntExact(existOrder.getId()));
+        map.put("content", "订单号:" + orderNumber);
+        WebSocketServer.sendToUser(String.valueOf(ordersPaymentDTO.getMerchantId()), JSON.toJSONString(map));
+
+        return vo;
     }
 }

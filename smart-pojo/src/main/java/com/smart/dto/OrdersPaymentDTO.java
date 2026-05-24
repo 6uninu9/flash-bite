@@ -17,4 +17,6 @@ public class OrdersPaymentDTO implements Serializable {
     //付款方式
     private Integer payMethod;
 
+    // 商户ID，WebSocket 的路径参数，客户端的唯一标识
+    private Long merchantId;
 }

@@ -31,4 +31,9 @@ public class MessageConstant {
     public static final String COUPON_OCCUPIED_BY_OTHER_ORDER = "优惠券已被其他订单占用";
     public static final String DISH_SOLD_OUT = "菜品已卖完";
     public static final String DISH_IS_NOT_AVAILABLE = "菜品不可用";
+    public static final String PAY_PARAM_ERROR = "支付参数错误";
+    public static final String ORDER_NUMBER_IS_NULL = "订单号为空";
+    public static final String PAY_METHOD_ERROR = "支付方式错误";
+    public static final String MERCHANT_NO_IS_NULL = "商户号为空";
+    public static final String REPEAT_PAYMENT = "重复支付";
 }

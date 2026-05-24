@@ -36,6 +36,12 @@ public class Orders implements Serializable {
     public static final Integer PAID = 1;
     public static final Integer REFUND = 2;
 
+    /**
+     * 支付方式 1微信，2支付宝
+     */
+    public static final Integer PAYMETHOD_WECHAT = 1;
+    public static final Integer PAYMETHOD_ALIPAY = 2;
+
     @Serial
     private static final long serialVersionUID = 1L;
 

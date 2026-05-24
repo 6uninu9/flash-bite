@@ -1,7 +1,9 @@
 package com.smart.service;
 
+import com.smart.dto.OrdersPaymentDTO;
 import com.smart.dto.OrdersSubmitDTO;
 import com.smart.entity.Orders;
+import com.smart.vo.OrderPaymentVO;
 import com.smart.vo.OrderSubmitVO;
 
 public interface OrderService {
@@ -24,4 +26,11 @@ public interface OrderService {
      * @param orderId 订单id
      */
     void cancelOrderAndReleaseStock(String orderId);
+
+    /**
+     * 订单支付
+     * @param ordersPaymentDTO 订单支付数据
+     * @return 订单支付结果
+     */
+    OrderPaymentVO payment(OrdersPaymentDTO ordersPaymentDTO);
 }
