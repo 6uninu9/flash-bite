@@ -17,4 +17,38 @@
             </foreach>
         </if>
     </update>
+    <update id="updateOrderIdBathByIds">
+        UPDATE user_coupon
+        SET
+        order_id = #{orderId}
+        WHERE
+        id IN
+        <foreach collection="userCoupons" item="item" open="(" separator="," close=")">
+            #{item.id}
+        </foreach>
+    </update>
+    <update id="removeOrderIdByOrderId">
+        UPDATE user_coupon
+        SET order_id = null
+        WHERE order_id = #{orderId}
+    </update>
+    <select id="getByUserIdAndCouponIds" resultType="com.smart.entity.UserCoupon">
+        SELECT * FROM user_coupon
+        WHERE
+        user_id = #{userId}
+        <if test="couponIds != null and couponIds.size() > 0">
+            AND coupon_id IN
+            <foreach collection="couponIds" item="item" open="(" separator="," close=")">
+                #{item}
+            </foreach>
+        </if>
+    </select>
+    <select id="getByIds" resultType="com.smart.entity.UserCoupon">
+        SELECT * FROM user_coupon
+        WHERE
+        id IN
+        <foreach collection="userCouponIds" item="item" open="(" separator="," close=")">
+            #{item}
+        </foreach>
+    </select>
 </mapper>

@@ -18,8 +18,6 @@ public class MessageConstant {
     public static final String UPLOAD_FAILED = "文件上传失败";
     public static final String PASSWORD_EDIT_FAILED = "密码修改失败";
     public static final String DISH_ON_SALE = "起售中的菜品不能删除";
-    public static final String SETMEAL_ON_SALE = "起售中的套餐不能删除";
-    public static final String DISH_BE_RELATED_BY_SETMEAL = "当前菜品关联了套餐,不能删除";
     public static final String ORDER_STATUS_ERROR = "订单状态错误";
     public static final String ORDER_NOT_FOUND = "订单不存在";
     public static final String DISH_STOCK_INSUFFICIENT = "菜品库存不足";
@@ -29,6 +27,11 @@ public class MessageConstant {
     public static final String COUPON_STOCK_NOT_ENOUGH = "优惠券已被抢完";
     public static final String USER_ALREADY_RECEIVED = "用户已领取过该优惠券";
     public static final String COUPON_OCCUPIED_BY_OTHER_ORDER = "优惠券已被其他订单占用";
+    public static final String COUPON_NOT_EXIST = "优惠券不存在";
+    public static final String COUPON_NOT_BELONG_TO_CURRENT_USER = "优惠券不属于当前用户";
+    public static final String COUPON_ALREADY_USED = "优惠券已使用";
+    public static final String COUPON_ALREADY_EXPIRED = "优惠券已过期";
+    public static final String COUPON_MIN_PRICE_NOT_MET = "订单金额不满足优惠券使用条件：满%s元可用";
     public static final String DISH_SOLD_OUT = "菜品已卖完";
     public static final String DISH_IS_NOT_AVAILABLE = "菜品不可用";
     public static final String PAY_PARAM_ERROR = "支付参数错误";
