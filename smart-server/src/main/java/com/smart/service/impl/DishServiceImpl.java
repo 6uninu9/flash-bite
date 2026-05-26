@@ -188,7 +188,10 @@ public class DishServiceImpl implements DishService {
 
             // 2.3. 判断逻辑时间是否过期
             if (redisData.getExpireTime() > System.currentTimeMillis()) {
-                // 2.3.1. 未过期，直接返回
+                // 2.3.1 未过期，修改最近一次访问时间
+                redisData.setLastAccessTime(System.currentTimeMillis());
+                stringRedisTemplate.opsForValue().set(key, JSONObject.toJSONString(redisData));
+                // 2.3.2. 返回数据
                 return dishVOList;
             }
 
@@ -257,6 +260,7 @@ public class DishServiceImpl implements DishService {
                 RedisData redisData1 = RedisData.builder()
                         .data(dishVOList)
                         .expireTime(System.currentTimeMillis() + CacheTimeConstant.LOGICAL_EXPIRE_SECONDS * 1000)
+                        .lastAccessTime(System.currentTimeMillis())
                         .build();
                 stringRedisTemplate.opsForValue().set(key, JSONObject.toJSONString(redisData1)); // 将RedisData对象转为JSON字符串存进redis
 

@@ -24,4 +24,6 @@ public class RedisData implements Serializable {
     private Object data;
     // 逻辑过期时间戳（毫秒）
     private Long expireTime;
+    // 最近一次访问时间戳（毫秒），用于清理僵尸数据
+    private Long lastAccessTime;
 }
