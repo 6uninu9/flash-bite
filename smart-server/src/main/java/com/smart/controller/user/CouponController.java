@@ -19,12 +19,12 @@ public class CouponController {
         this.couponService = couponService;
     }
 
-    @PostMapping
+    @PostMapping("/seckill")
     @Operation(
             summary = "优惠券秒杀"
     )
     public Result<String> couponSeckkill(Long couponId) {
         couponService.seckill(couponId);
-        return Result.success();
+        return Result.success("抢购成功，请稍后查看抢购结果...");
     }
 }

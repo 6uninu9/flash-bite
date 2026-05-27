@@ -10,15 +10,19 @@ import com.smart.mapper.CouponMapper;
 import com.smart.mapper.UserCouponMapper;
 import com.smart.service.CouponService;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.rocketmq.client.exception.MQClientException;
 import org.apache.rocketmq.client.producer.SendCallback;
 import org.apache.rocketmq.client.producer.SendResult;
+import org.apache.rocketmq.remoting.exception.RemotingException;
 import org.apache.rocketmq.spring.core.RocketMQTemplate;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
+import org.apache.rocketmq.common.message.Message;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.nio.charset.StandardCharsets;
 import java.util.Collections;
 
 @Slf4j
@@ -38,6 +42,7 @@ public class CouponServiceImpl implements CouponService {
 
     // 声明脚本
     private static final DefaultRedisScript<Long> SECKILL_DEDUCT_INVENTORY_SCRIPT;
+
     // 初始化脚本
     static {
         SECKILL_DEDUCT_INVENTORY_SCRIPT = new DefaultRedisScript<>();
@@ -93,7 +98,7 @@ public class CouponServiceImpl implements CouponService {
                 String.valueOf(1) // lua脚本的可变参数参数，只能接收数组
         );
         // 3.2. 判断是否扣减成功
-        if (result == 0){
+        if (result == 0) {
             log.info("活动库存不足");
             throw new BaseException(MessageConstant.COUPON_STOCK_NOT_ENOUGH);
         }
@@ -101,7 +106,7 @@ public class CouponServiceImpl implements CouponService {
         // 4.向RocketMQ中发送消息异步落库和插入用户的优惠券抢购记录
         // 对于异步落库 除了消息队列异步解耦 还可以设置定时任务定期从redis同步到数据库
         // 而插入数据还是需要发送消息处理 要么直接串行化
-        rocketMQTemplate.asyncSend("seckillTopic",couponId+"-"+userId, new SendCallback() {
+        rocketMQTemplate.asyncSend("seckillTopic", couponId + "-" + userId, new SendCallback() {
             @Override
             public void onSuccess(SendResult sendResult) {
                 log.info("消息发送成功：{}", sendResult);
@@ -136,5 +141,37 @@ public class CouponServiceImpl implements CouponService {
                 .status(UserCoupon.STATUS_UNUSED)
                 .build();
         userCouponMapper.insert(userCoupon);
+
+        // 4. 获取优惠卷的有效天数
+        // 事实上，这个过期时间应该也在用户优惠卷中开一个字段，
+        // 因为优惠卷表中的过期时间终归是一个模板是可以更改的，
+        // 不过，只要规定优惠卷不可以更改即可，但是只是妥协，饮鸩止渴
+        Integer validDays = coupon.getValidDays(); // 有效天数
+
+        // 5. 创建自动修改过期优惠卷状态的延时消息
+        String msg = userCoupon.getId().toString();
+        Message rocketMsg = new Message(
+                "couponTopic",
+                msg.getBytes(StandardCharsets.UTF_8)
+        );
+        // 开源版 RocketMQ 5.X的自定义延时时间默认最大为3天，可以通过修改配置文件修改时间
+        rocketMsg.setDeliverTimeMs(validDays * 24 * 60 * 60 * 1000L); // 延时毫秒数
+
+        // 6. 发送延时消息
+        try {
+            rocketMQTemplate.getProducer().send(rocketMsg, new SendCallback() {
+                @Override
+                public void onSuccess(SendResult sendResult) {
+                    log.info("延时消息发送成功：{}", sendResult);
+                }
+
+                @Override
+                public void onException(Throwable throwable) {
+                    log.error("延时消息发送失败：{}", throwable.getMessage());
+                }
+            });
+        } catch (MQClientException | RemotingException | InterruptedException e) {
+            throw new RuntimeException(e);
+        }
     }
 }
