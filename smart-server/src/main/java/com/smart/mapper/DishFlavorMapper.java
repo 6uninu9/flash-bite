@@ -1,6 +1,7 @@
 package com.smart.mapper;
 
 import com.smart.entity.DishFlavor;
+import org.apache.ibatis.annotations.Delete;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Select;
 
@@ -11,9 +12,28 @@ public interface DishFlavorMapper {
 
     /**
      * 根据菜品id查询口味数据
-     * @param dishId
-     * @return
+     * @param dishId 菜品id
+     * @return 口味数据集合
      */
     @Select("select * from dish_flavor where dish_id = #{dishId}")
     List<DishFlavor> getByDishId(Long dishId);
+
+    /**
+     * 批量插入口味数据
+     * @param flavors 口味数据
+     */
+    void insertBatch(List<DishFlavor> flavors);
+
+    /**
+     * 根据菜品id删除口味数据
+     * @param id 菜品id
+     */
+    @Delete("delete from dish_flavor where dish_id = #{dishId}")
+    void deleteByDishId(Long id);
+
+    /**
+     * 根据菜品id批量删除口味数据
+     * @param dishIds 菜品id集合
+     */
+    void deleteByDishIds(List<Long> dishIds);
 }

@@ -1,7 +1,13 @@
 package com.smart.mapper;
 
+import com.github.pagehelper.Page;
+import com.smart.annotation.AutoFill;
+import com.smart.dto.DishPageQueryDTO;
 import com.smart.entity.Dish;
+import com.smart.enumeration.OperationType;
+import com.smart.vo.DishVO;
 import org.apache.ibatis.annotations.Mapper;
+import org.apache.ibatis.annotations.Options;
 import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.annotations.Update;
 
@@ -40,4 +46,24 @@ public interface DishMapper {
      */
     @Update("update dish set stock = stock - #{number} where id = #{dishId} and stock >= #{number}")
     int deductStockByDishId(Long dishId, Integer number);
+
+    /**
+     * 新增菜品数据
+     * @param dish 菜品数据
+     */
+    @AutoFill(value = OperationType.INSERT)
+    void insert(Dish dish);
+
+    /**
+     * 批量删除菜品
+     * @param ids 菜品id列表
+     */
+    void deleteByIds(List<Long> ids);
+
+    /**
+     * 菜品分页查询
+     * @param dishPageQueryDTO 分页查询参数
+     * @return 菜品分页结果
+     */
+    List<DishVO> queryPage(DishPageQueryDTO dishPageQueryDTO);
 }

@@ -26,4 +26,6 @@ public class RedisData implements Serializable {
     private Long expireTime;
     // 最近一次访问时间戳（毫秒），用于清理僵尸数据
     private Long lastAccessTime;
+    // 标记对象，表示让下一次请求异步查询数据库刷新缓存
+    public static final Object UPDATING_MARKER = new Object();
 }

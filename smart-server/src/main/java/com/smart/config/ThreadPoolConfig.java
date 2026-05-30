@@ -33,4 +33,22 @@ public class ThreadPoolConfig {
         executor.initialize();
         return executor;
     }
+
+    /**
+     * 创建一个线程池，用于异步重建菜品缓存
+     * 该线程池不是用来“同时跑多个重建”，而是用来承接大量一次性投递的异步任务，保护系统资源、隔离环境影响、控制执行速率。
+     * @return 线程池对象
+     */
+    @Bean("rebuildDishCacheExecutor")
+    public Executor rebuildDishCacheExecutor(){
+        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+        executor.setCorePoolSize(1); // 最多只有一个异步线程重建缓存
+        executor.setMaxPoolSize(2);
+        executor.setKeepAliveSeconds(60);
+        executor.setQueueCapacity(50); // 超过 50 个待执行的重建任务就直接拒绝，避免内存撑爆
+        executor.setThreadNamePrefix("rebuild-dish-cache-task-");
+        executor.setRejectedExecutionHandler(new ThreadPoolExecutor.DiscardPolicy()); // 拒绝时丢弃，不发异常
+        executor.initialize();
+        return executor;
+    }
 }
