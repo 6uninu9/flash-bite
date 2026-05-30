@@ -29,6 +29,10 @@ public class JwtTokenUserInterceptor implements HandlerInterceptor {
         this.jwtProperties = jwtProperties;
     }
 
+    /**
+     * 拦截请求，进行jwt令牌校验
+     */
+    @Override
     public boolean preHandle(@NonNull HttpServletRequest request, @NonNull HttpServletResponse response, @NonNull Object handler) throws Exception {
         //判断当前拦截到的是Controller的方法还是其他资源
         if (!(handler instanceof HandlerMethod)) {
@@ -63,5 +67,18 @@ public class JwtTokenUserInterceptor implements HandlerInterceptor {
             response.getWriter().write("{\"code\":0,\"msg\":\"" + ex.getMessage() + "\"}");
             return false;
         }
+    }
+
+    /**
+     * 请求处理完成后执行（无论成功还是失败）
+     * 在这里清理ThreadLocal，解决内存泄漏问题
+     */
+    @Override
+    public void afterCompletion(@NonNull HttpServletRequest request,
+                                @NonNull HttpServletResponse response,
+                                @NonNull Object handler,
+                                Exception ex){
+        BaseContext.removeCurrentId();
+        log.debug("清理ThreadLocal中的用户ID");
     }
 }
