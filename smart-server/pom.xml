@@ -130,6 +130,12 @@
             <artifactId>redisson-spring-boot-starter</artifactId>
             <version>3.27.2</version>
         </dependency>
+        <!--    hutool工具包，用于雪花算法生成订单号    -->
+        <dependency>
+            <groupId>cn.hutool</groupId>
+            <artifactId>hutool-all</artifactId>
+            <version>5.8.40</version>
+        </dependency>
     </dependencies>
 
     <build>
