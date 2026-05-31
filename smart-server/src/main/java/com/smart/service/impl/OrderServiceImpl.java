@@ -33,7 +33,6 @@ import java.math.RoundingMode;
 import java.time.LocalDateTime;
 import java.util.*;
 import java.util.concurrent.*;
-import java.util.concurrent.atomic.AtomicLong;
 
 @Service
 @Slf4j
@@ -70,8 +69,6 @@ public class OrderServiceImpl implements OrderService {
         this.userCouponMapper = userCouponMapper;
     }
 
-    AtomicLong userIdAt = new AtomicLong(0);
-
     /**
      * 用户下单
      *
@@ -82,8 +79,7 @@ public class OrderServiceImpl implements OrderService {
     @Transactional(rollbackFor = Exception.class)
     public OrderSubmitVO submitOrder(OrdersSubmitDTO ordersSubmitDTO) {
         // 获取用户id
-//        Long userId = BaseContext.getCurrentId();
-        Long userId = userIdAt.getAndIncrement(); // 自增
+        Long userId = BaseContext.getCurrentId();
         // 获取用户优惠卷id集合
         List<Long> userCouponIds = ordersSubmitDTO.getUserCouponIds();
 
