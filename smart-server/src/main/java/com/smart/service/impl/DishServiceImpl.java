@@ -18,6 +18,7 @@ import com.smart.mapper.DishMapper;
 import com.smart.result.PageResult;
 import com.smart.service.BloomCacheService;
 import com.smart.service.DishService;
+import com.smart.task.HotCategoryAutoDetectTask;
 import com.smart.task.HotCategoryLocalCacheRefreshTask;
 import com.smart.vo.DishVO;
 import lombok.extern.slf4j.Slf4j;
@@ -67,9 +68,11 @@ public class DishServiceImpl implements DishService {
     @Qualifier("rebuildDishCacheExecutor")
     private final Executor rebuildDishCacheExecutor;
 
+    private final HotCategoryAutoDetectTask hotCategoryAutoDetectTask;
+
     private static final String LOCK_CATEGORY_DISH_REBUILD = "lock:category:dish:rebuild";
 
-    public DishServiceImpl(DishMapper dishMapper, DishFlavorMapper dishFlavorMapper, StringRedisTemplate stringRedisTemplate, HotCategoryLocalCacheRefreshTask hotCategoryLocalCacheRefreshTask, RedissonClient redissonClient, RBloomFilter<String> dishBloomFilter, BloomCacheService bloomCacheService, RocketMQTemplate rocketMQTemplate, Executor rebuildDishCacheExecutor) {
+    public DishServiceImpl(DishMapper dishMapper, DishFlavorMapper dishFlavorMapper, StringRedisTemplate stringRedisTemplate, HotCategoryLocalCacheRefreshTask hotCategoryLocalCacheRefreshTask, RedissonClient redissonClient, RBloomFilter<String> dishBloomFilter, BloomCacheService bloomCacheService, RocketMQTemplate rocketMQTemplate, Executor rebuildDishCacheExecutor, HotCategoryAutoDetectTask hotCategoryAutoDetectTask) {
         this.dishMapper = dishMapper;
         this.dishFlavorMapper = dishFlavorMapper;
         this.stringRedisTemplate = stringRedisTemplate;
@@ -79,6 +82,7 @@ public class DishServiceImpl implements DishService {
         this.bloomCacheService = bloomCacheService;
         this.rocketMQTemplate = rocketMQTemplate;
         this.rebuildDishCacheExecutor = rebuildDishCacheExecutor;
+        this.hotCategoryAutoDetectTask = hotCategoryAutoDetectTask;
     }
 
     /**
@@ -89,6 +93,7 @@ public class DishServiceImpl implements DishService {
      */
     @Override
     public List<DishVO> getDishListByCategoryId(Long categoryId) {
+
         // 1. 查询布隆过滤器是否存在该分类id，避免缓存穿透
         if (!bloomCacheService.contains(dishBloomFilter, categoryId.toString())) {
             // 1.1. 不存在，直接返回空集合
@@ -98,7 +103,7 @@ public class DishServiceImpl implements DishService {
         }
 
         // 2. 记录categoryId的访问量，用于区分冷热数据 使用ZSet数据类型，便于记录访问量，即热度
-        stringRedisTemplate.opsForZSet().incrementScore(CacheKeyConstants.CATEGORY_QPS_STATS_KEY, String.valueOf(categoryId), 1);
+        hotCategoryAutoDetectTask.incrementCategoryAccess(String.valueOf(categoryId));
 
         // 3. 判断当前categoryId是热数据还是冷数据 走不同分支
         if (hotCategoryLocalCacheRefreshTask.isHot(String.valueOf(categoryId))) {
