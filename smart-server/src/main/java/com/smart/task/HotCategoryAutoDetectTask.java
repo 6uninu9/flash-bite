@@ -10,6 +10,7 @@ import org.springframework.data.redis.core.ZSetOperations;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -164,14 +165,22 @@ public class HotCategoryAutoDetectTask {
     private void updateHotCategoryCache(String[] hotCategoryIds) {
         stringRedisTemplate.execute((RedisCallback<Void>) connection -> {
             // 1. 将缓存Key转为字节数组（Redis底层使用字节）
-            byte[] key = CacheKeyConstants.HOT_CATEGORY_IDS_KEY.getBytes();
-            // 2. 删除旧的集合（如果存在）
-            connection.keyCommands().del(key);
-            // 3. 如果新的热点列表不为空，则将其全部添加到Set中
-            if (hotCategoryIds.length > 0) {
-                connection.setCommands().sAdd(key, Arrays.stream(hotCategoryIds)
-                        .map(String::getBytes)
-                        .toArray(byte[][]::new));
+            byte[] key = CacheKeyConstants.HOT_CATEGORY_IDS_KEY.getBytes(StandardCharsets.UTF_8);
+            try {
+                // 2. 开启事务
+                connection.multi();
+                // 3. 删除旧的集合（如果存在）
+                connection.keyCommands().del(key);
+                // 4. 如果新的热点列表不为空，则将其全部添加到Set中
+                if (hotCategoryIds != null &&hotCategoryIds.length > 0) {
+                    connection.setCommands().sAdd(key, Arrays.stream(hotCategoryIds)
+                            .map(String::getBytes)
+                            .toArray(byte[][]::new));
+                }
+                // 5. 提交事务
+                connection.exec();
+            } catch (Exception e) {
+                throw new RuntimeException(e);
             }
             return null;
         });
