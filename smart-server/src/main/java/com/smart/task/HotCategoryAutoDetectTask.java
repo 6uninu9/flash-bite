@@ -4,17 +4,12 @@ import com.smart.constant.CacheKeyConstants;
 import lombok.extern.slf4j.Slf4j;
 
 import org.springframework.data.redis.connection.zset.Aggregate;
-import org.springframework.data.redis.core.RedisCallback;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.ZSetOperations;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
-import java.nio.charset.StandardCharsets;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.List;
-import java.util.Set;
+import java.util.*;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -38,9 +33,12 @@ public class HotCategoryAutoDetectTask {
 
     private final StringRedisTemplate stringRedisTemplate;
 
+    // 本地缓存
+    private volatile Map<String, Boolean> hotIds = new HashMap<>();
+
     private static final int TIME_SLICE_SECONDS = 5;          // 时间片大小（秒）
     private static final int WINDOW_SIZE = 6;                 // 滑动窗口包含的时间片数
-    private static final long ABSOLUTE_HOT_THRESHOLD = 10;  // 绝对热点阈值
+    private static final long ABSOLUTE_HOT_THRESHOLD = 50;  // 绝对热点阈值
     private static final double DYNAMIC_THRESHOLD_MULTIPLE = 3.0; // 动态阈值倍数
     private static final long TEMP_KEY_TTL_SECONDS = 30;      // 临时Key过期时间
     private static final long TIME_SLICE_KEY_TTL_SECONDS = TIME_SLICE_SECONDS * (WINDOW_SIZE + 3); // 时间片Key过期兜底
@@ -103,19 +101,31 @@ public class HotCategoryAutoDetectTask {
             }
         }
 
-        // 8. 更新热点缓存
+        // 8. 更新本地热点缓存
         if (!hotCategories.isEmpty()) {
-            String[] hotCategoryIds = hotCategories.stream().distinct().toArray(String[]::new);
-            updateHotCategoryCache(hotCategoryIds);
+            updateLocalCache(new HashSet<>(hotCategories));
             log.info("检测到{}个热点分类，阈值={}", hotCategories.size(), finalThreshold);
         } else {
-            // 没有热点时，清空热点缓存
-            clearHotCategoryCache();
-            log.info("未检测到热点分类，已清空热点缓存");
+            // 没有热点时，清空本地缓存
+            hotIds.clear();
+            log.info("未检测到热点分类，已清空本地热点缓存");
         }
 
         // 9. 清理临时Key和过期时间片
         cleanUp(tempUnionKey, lastCompleteSlice);
+    }
+
+    /**
+     * 更新本地缓存
+     */
+    private void updateLocalCache(Set<String> ids) {
+        if (ids == null || ids.isEmpty()) {
+            this.hotIds = Collections.emptyMap();
+            return;
+        }
+        Map<String, Boolean> newMap = new HashMap<>();
+        ids.forEach(id -> newMap.put(id, Boolean.TRUE));
+        this.hotIds = newMap;   // 原子替换，读线程永远拿到一个完整快照
     }
 
     /**
@@ -146,10 +156,9 @@ public class HotCategoryAutoDetectTask {
         // 删除临时Union Key
         stringRedisTemplate.delete(tempUnionKey);
 
-        // 主动删除窗口最老的那个时间片（注意：最老的时间片索引 = currentCompleteSlice - WINDOW_SIZE + 1 的前一个）
+        // 主动删除窗口最老的那个时间片（注意：最老的时间片索引 = currentCompleteSlice - WINDOW_SIZE + 1 的前一个，或者是当前时间片索引 - 上一个时间片的索引）
         long oldestSlice = currentCompleteSlice - WINDOW_SIZE; // 窗口外第一个
         stringRedisTemplate.delete(getTimeSliceKey(oldestSlice));
-        // 额外：可再删除更老的（optional，因有TTL兜底）
     }
 
     /**
@@ -157,40 +166,6 @@ public class HotCategoryAutoDetectTask {
      */
     private String getTimeSliceKey(long timeSlice) {
         return CacheKeyConstants.CATEGORY_QPS_STATS_KEY + ":" + timeSlice;
-    }
-
-    /**
-     * 原子更新热点分类缓存
-     */
-    private void updateHotCategoryCache(String[] hotCategoryIds) {
-        stringRedisTemplate.execute((RedisCallback<Void>) connection -> {
-            // 1. 将缓存Key转为字节数组（Redis底层使用字节）
-            byte[] key = CacheKeyConstants.HOT_CATEGORY_IDS_KEY.getBytes(StandardCharsets.UTF_8);
-            try {
-                // 2. 开启事务
-                connection.multi();
-                // 3. 删除旧的集合（如果存在）
-                connection.keyCommands().del(key);
-                // 4. 如果新的热点列表不为空，则将其全部添加到Set中
-                if (hotCategoryIds != null &&hotCategoryIds.length > 0) {
-                    connection.setCommands().sAdd(key, Arrays.stream(hotCategoryIds)
-                            .map(String::getBytes)
-                            .toArray(byte[][]::new));
-                }
-                // 5. 提交事务
-                connection.exec();
-            } catch (Exception e) {
-                throw new RuntimeException(e);
-            }
-            return null;
-        });
-    }
-
-    /**
-     * 清空热点分类缓存
-     */
-    private void clearHotCategoryCache() {
-        stringRedisTemplate.delete(CacheKeyConstants.HOT_CATEGORY_IDS_KEY);
     }
 
     /**
@@ -205,5 +180,15 @@ public class HotCategoryAutoDetectTask {
         stringRedisTemplate.opsForZSet().incrementScore(sliceKey, categoryId, 1);
         // 每次操作后，重新设置过期时间，以保证活跃的时间片不会过期
         stringRedisTemplate.expire(sliceKey, TIME_SLICE_KEY_TTL_SECONDS, TimeUnit.SECONDS);
+    }
+
+    /**
+     * 判断某个分类id是否是热点分类
+     *
+     * @param categoryId 分类id
+     * @return 是否是热点分类
+     */
+    public boolean isHot(String categoryId) {
+        return hotIds.containsKey(categoryId);
     }
 }

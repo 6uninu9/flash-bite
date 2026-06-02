@@ -19,7 +19,6 @@ import com.smart.result.PageResult;
 import com.smart.service.BloomCacheService;
 import com.smart.service.DishService;
 import com.smart.task.HotCategoryAutoDetectTask;
-import com.smart.task.HotCategoryLocalCacheRefreshTask;
 import com.smart.vo.DishVO;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.rocketmq.client.producer.SendCallback;
@@ -52,8 +51,6 @@ public class DishServiceImpl implements DishService {
 
     private final StringRedisTemplate stringRedisTemplate;
 
-    private final HotCategoryLocalCacheRefreshTask hotCategoryLocalCacheRefreshTask;
-
     private final RedissonClient redissonClient;
 
     // 注入对应业务的布隆过滤器
@@ -72,11 +69,10 @@ public class DishServiceImpl implements DishService {
 
     private static final String LOCK_CATEGORY_DISH_REBUILD = "lock:category:dish:rebuild";
 
-    public DishServiceImpl(DishMapper dishMapper, DishFlavorMapper dishFlavorMapper, StringRedisTemplate stringRedisTemplate, HotCategoryLocalCacheRefreshTask hotCategoryLocalCacheRefreshTask, RedissonClient redissonClient, RBloomFilter<String> dishBloomFilter, BloomCacheService bloomCacheService, RocketMQTemplate rocketMQTemplate, Executor rebuildDishCacheExecutor, HotCategoryAutoDetectTask hotCategoryAutoDetectTask) {
+    public DishServiceImpl(DishMapper dishMapper, DishFlavorMapper dishFlavorMapper, StringRedisTemplate stringRedisTemplate, RedissonClient redissonClient, RBloomFilter<String> dishBloomFilter, BloomCacheService bloomCacheService, RocketMQTemplate rocketMQTemplate, Executor rebuildDishCacheExecutor, HotCategoryAutoDetectTask hotCategoryAutoDetectTask) {
         this.dishMapper = dishMapper;
         this.dishFlavorMapper = dishFlavorMapper;
         this.stringRedisTemplate = stringRedisTemplate;
-        this.hotCategoryLocalCacheRefreshTask = hotCategoryLocalCacheRefreshTask;
         this.redissonClient = redissonClient;
         this.dishBloomFilter = dishBloomFilter;
         this.bloomCacheService = bloomCacheService;
@@ -106,7 +102,7 @@ public class DishServiceImpl implements DishService {
         hotCategoryAutoDetectTask.incrementCategoryAccess(String.valueOf(categoryId));
 
         // 3. 判断当前categoryId是热数据还是冷数据 走不同分支
-        if (hotCategoryLocalCacheRefreshTask.isHot(String.valueOf(categoryId))) {
+        if (hotCategoryAutoDetectTask.isHot(String.valueOf(categoryId))) {
             return getHotCategoryDishes(categoryId);
         } else {
             return getColdCategoryDishes(categoryId);
