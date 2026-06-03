@@ -78,7 +78,7 @@ public class CouponServiceImpl implements CouponService, BloomFilterDataService 
     public void seckill(Long couponId) {
 
         // 1. 查询布隆过滤器是否存在该优惠卷id，避免缓存穿透
-        if (!bloomCacheService.contains(couponBloomFilter, couponId.toString())) {
+        if (bloomCacheService.contains(couponBloomFilter, couponId.toString())) {
             // 1.1. 不存在，直接结束
             /// 如果前端有错误需求，可以抛出业务异常，让全局异常处理器处理，比如返回错误信息"菜品不存在"
             log.info("布隆过滤器拦截-优惠卷秒杀-优惠卷不存在");

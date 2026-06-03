@@ -50,6 +50,6 @@ public class BloomCacheService {
      * 判断某个元素是否存在于布隆过滤器中
      */
     public boolean contains(RBloomFilter<String> bloomFilter, String id) {
-        return bloomFilter.contains(id);
+        return !bloomFilter.contains(id);
     }
 }
