@@ -54,8 +54,8 @@ public class DishServiceImpl implements DishService {
     private final RedissonClient redissonClient;
 
     // 注入对应业务的布隆过滤器
-    @Qualifier("dishBloomFilter")
-    private final RBloomFilter<String> dishBloomFilter;
+    @Qualifier("categoryBloomFilter")
+    private final RBloomFilter<String> categoryBloomFilter;
 
     // 注入布隆过滤器缓存服务，对布隆过滤器进行操作
     private final BloomCacheService bloomCacheService;
@@ -69,12 +69,12 @@ public class DishServiceImpl implements DishService {
 
     private static final String LOCK_CATEGORY_DISH_REBUILD = "lock:category:dish:rebuild";
 
-    public DishServiceImpl(DishMapper dishMapper, DishFlavorMapper dishFlavorMapper, StringRedisTemplate stringRedisTemplate, RedissonClient redissonClient, RBloomFilter<String> dishBloomFilter, BloomCacheService bloomCacheService, RocketMQTemplate rocketMQTemplate, Executor rebuildDishCacheExecutor, HotCategoryAutoDetectTask hotCategoryAutoDetectTask) {
+    public DishServiceImpl(DishMapper dishMapper, DishFlavorMapper dishFlavorMapper, StringRedisTemplate stringRedisTemplate, RedissonClient redissonClient, RBloomFilter<String> categoryBloomFilter, BloomCacheService bloomCacheService, RocketMQTemplate rocketMQTemplate, Executor rebuildDishCacheExecutor, HotCategoryAutoDetectTask hotCategoryAutoDetectTask) {
         this.dishMapper = dishMapper;
         this.dishFlavorMapper = dishFlavorMapper;
         this.stringRedisTemplate = stringRedisTemplate;
         this.redissonClient = redissonClient;
-        this.dishBloomFilter = dishBloomFilter;
+        this.categoryBloomFilter = categoryBloomFilter;
         this.bloomCacheService = bloomCacheService;
         this.rocketMQTemplate = rocketMQTemplate;
         this.rebuildDishCacheExecutor = rebuildDishCacheExecutor;
@@ -91,7 +91,7 @@ public class DishServiceImpl implements DishService {
     public List<DishVO> getDishListByCategoryId(Long categoryId) {
 
         // 1. 查询布隆过滤器是否存在该分类id，避免缓存穿透
-        if (!bloomCacheService.contains(dishBloomFilter, categoryId.toString())) {
+        if (!bloomCacheService.contains(categoryBloomFilter, categoryId.toString())) {
             // 1.1. 不存在，直接返回空集合
             /// 如果前端有错误需求，可以抛出业务异常，让全局异常处理器处理，比如返回错误信息"菜品不存在"
             log.info("布隆过滤器拦截-根据分类查询菜品-分类不存在");
@@ -135,6 +135,9 @@ public class DishServiceImpl implements DishService {
             );
             dishFlavorMapper.insertBatch(flavors); //批量插入口味数据
         }
+
+        // 将分类id加入布隆过滤器
+        bloomCacheService.addToBloomFilter(categoryBloomFilter, dishDTO.getCategoryId().toString());
 
         // 删除冷缓存，哪怕是极端情况下产生了旧数据也有TTL兜底，而且冷缓存访问量不大，用户体验影响低
         deleteColdCache(dishDTO.getCategoryId());

@@ -14,8 +14,14 @@ public enum BloomFilterBizEnum {
     CATEGORY(
             "bloom:category:id",
             "bloom:category:id:new",
-            "bloom:filter:category:set",
             "categoryServiceImpl"
+    ),
+
+    // 优惠卷
+    COUPON(
+            "bloom:coupon:id",
+            "bloom:coupon:id:new",
+            "couponServiceImpl"
     );
 
     // 菜品
@@ -30,7 +36,6 @@ public enum BloomFilterBizEnum {
 
     private final String oldKey;       // 旧布隆key
     private final String newKey;       // 临时key
-    private final String dataSetKey;    // 缓存set key
     private final String serviceName;
 
     @FunctionalInterface // 函数式接口
@@ -38,10 +43,9 @@ public enum BloomFilterBizEnum {
         List<String> get(Object service);
     }
 
-    BloomFilterBizEnum(String oldKey, String newKey, String dataSetKey, String serviceName) {
+    BloomFilterBizEnum(String oldKey, String newKey, String serviceName) {
         this.oldKey = oldKey;
         this.newKey = newKey;
-        this.dataSetKey = dataSetKey;
         this.serviceName = serviceName;
     }
 }

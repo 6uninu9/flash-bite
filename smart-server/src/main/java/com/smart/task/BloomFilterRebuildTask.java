@@ -9,7 +9,6 @@ import org.redisson.api.RKeys;
 import org.redisson.api.RLock;
 import org.redisson.api.RedissonClient;
 import org.springframework.context.ApplicationContext;
-import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
@@ -34,7 +33,7 @@ public class BloomFilterRebuildTask {
     // 布隆过滤器重建分布式锁的key
     private static final String REBUILD_LOCK_KEY = "lock:bloom:filter:rebuild";
 
-    public BloomFilterRebuildTask(StringRedisTemplate stringRedisTemplate, RedissonClient redissonClient1, BloomCacheService bloomCacheService, ApplicationContext applicationContext) {
+    public BloomFilterRebuildTask(RedissonClient redissonClient1, BloomCacheService bloomCacheService, ApplicationContext applicationContext) {
         this.redissonClient = redissonClient1;
         this.bloomCacheService = bloomCacheService;
         this.applicationContext = applicationContext;
@@ -86,16 +85,10 @@ public class BloomFilterRebuildTask {
         try {
             log.info("开始全量重建布隆过滤器");
 
-            // 对应业务需要存进布隆过滤器的id 暂用id代表，可以是其他作为缓存的唯一标识
-            List<String> ids;
-
-            // 1. 从数据库中获取对应业务（如菜品）存进布隆过滤器中的id的key
-            String dataSetKey = bizEnum.getDataSetKey();
-
-            // 2. 获取对应的业务Service实例
+            // 1. 获取对应的业务Service实例
             BloomFilterDataService bean = applicationContext.getBean(bizEnum.getServiceName(), BloomFilterDataService.class);
 
-            // 3. 获取数据库中的id
+            // 2. 获取数据库中的id
             List<String> existingIds = bean.getKey();
             if (existingIds == null || existingIds.isEmpty()) {
                 // 2.1. 数据库数据为空
@@ -103,28 +96,28 @@ public class BloomFilterRebuildTask {
                 return;
             }
 
-            // 4. 创建新的布隆过滤器（使用枚举常量中临时名称bloom:xxx:id:new）
+            // 3. 创建新的布隆过滤器（使用枚举常量中临时名称bloom:xxx:id:new）
             RBloomFilter<String> newBloomFilter = redissonClient.getBloomFilter(
                     bizEnum.getNewKey()
             );
 
-            // 5. 使用与原来过滤器相同的参数初始化
+            // 4. 使用与原来过滤器相同的参数初始化
             // 因为不能采用覆盖的方式重建布隆过滤器 所以只能采用新建、改名的方式达到重建的目的
-            // 5.1. 获取原来的布隆过滤器
+            // 4.1. 获取原来的布隆过滤器
             RBloomFilter<String> oldFilter = redissonClient.getBloomFilter(bizEnum.getOldKey());
-            // 5.2. 初始化新的布隆过滤器
+            // 4.2. 初始化新的布隆过滤器
             newBloomFilter.tryInit(
                     oldFilter.getExpectedInsertions(), // 预计插入数量
                     oldFilter.getFalseProbability()    // 误判率
             );
 
-            // 6. 批量添加到新的key到布隆过滤器
-            bloomCacheService.batchAddToBloomFilter(newBloomFilter, existingIds,bizEnum);
+            // 5. 批量添加到新的key到布隆过滤器
+            bloomCacheService.batchAddToBloomFilter(newBloomFilter, existingIds);
 
-            // 7. 删除旧的布隆过滤器
+            // 6. 删除旧的布隆过滤器
             oldFilter.delete();
 
-            // 8. 重命名新的布隆过滤器（原子操作）
+            // 7. 重命名新的布隆过滤器（原子操作）
             // 注意：这里存在短暂的服务不可用，可以考虑双布隆过滤器方案
             RKeys keys = redissonClient.getKeys();
             keys.rename(bizEnum.getNewKey(), bizEnum.getOldKey()); // 将新的key重命名为旧的key

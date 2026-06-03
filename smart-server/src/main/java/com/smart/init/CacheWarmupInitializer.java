@@ -1,6 +1,7 @@
 package com.smart.init;
 
 import com.smart.constant.CacheKeyConstants;
+import com.smart.constant.CacheTimeConstant;
 import com.smart.entity.Coupon;
 import com.smart.enumeration.BloomFilterBizEnum;
 import com.smart.mapper.CouponMapper;
@@ -13,7 +14,13 @@ import org.springframework.context.ApplicationContext;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Component;
 
+import java.time.Instant;
+import java.time.ZoneId;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ThreadLocalRandom;
+import java.util.concurrent.TimeUnit;
 
 /**
  * 缓存预热初始化器
@@ -47,9 +54,10 @@ public class CacheWarmupInitializer implements CommandLineRunner {
     }
 
     @Override
-    public void run(String... args) throws Exception {
+    public void run(String... args) {
         warmupBloomFilterCache();
         warmupSeckkillCouponStockCache();
+        warmupSeckillCouponStatusCache();
     }
 
     /**
@@ -71,7 +79,8 @@ public class CacheWarmupInitializer implements CommandLineRunner {
                 // 2. 调用子类实现的getAllIds方法获取对应业务需要缓存的id集合
                 List<String> allIds = bean.getKey();
                 // 3. 将数据缓存到布隆过滤器中
-                bloomCacheService.batchAddToBloomFilter(redissonClient.getBloomFilter(biz.getOldKey()), allIds, biz);
+                bloomCacheService.batchAddToBloomFilter(redissonClient.getBloomFilter(biz.getOldKey()), allIds);
+                log.info("预热{}完成，数据量：{}", biz.name(), allIds.size());
             } catch (Exception e) {
                 log.error("预热{}失败", biz.name(), e);
             }
@@ -85,8 +94,8 @@ public class CacheWarmupInitializer implements CommandLineRunner {
      * 1. 获取所有秒杀优惠券库存数据
      * 2. 批量缓存到Redis中
      * 3. 没有给缓存设置过期时间的原因在于：
-     *    一方面是方便测试，
-     *    另一方面是为优惠卷秒杀活动的库存预扣减打下缓存基础，抵抗活动开启的瞬时压力
+     * 一方面是方便测试，
+     * 另一方面是为优惠卷秒杀活动的库存预扣减打下缓存基础，抵抗活动开启的瞬时压力
      */
     public void warmupSeckkillCouponStockCache() {
         log.info("开始优惠卷活动库存缓存预热......");
@@ -105,5 +114,51 @@ public class CacheWarmupInitializer implements CommandLineRunner {
         });
 
         log.info("优惠卷活动库存缓存预热完成......");
+    }
+
+    public void warmupSeckillCouponStatusCache() {
+        log.info("开始秒杀优惠券状态信息缓存预热......");
+
+        // 1. 从数据库中获取所有参与秒杀的优惠卷数据
+        Coupon c = Coupon.builder()
+                .isSeckill(Coupon.IS_SECKILL_YES)
+                .build();
+        List<Coupon> coupons = couponMapper.list(c);
+
+        // 2. 批量以优惠卷id为key将优惠卷的开始时间和结束时间缓存到Redis中
+        coupons.forEach(coupon -> {
+            String key = CacheKeyConstants.SECKILL_COUPON_STATUS_KEY + coupon.getId();
+
+            // 使用Hash类型 因为固定存储两个字段且字段名固定
+            // 2.1 构建缓存字段
+            Map<String, Object> fields = new HashMap<>();
+            fields.put("start_time", String.valueOf(coupon.getStartTime()
+                    .atZone(ZoneId.of("Asia/Shanghai"))
+                    .toInstant()
+                    .toEpochMilli()));   // 毫秒时间戳
+            fields.put("end_time", String.valueOf(coupon.getEndTime()
+                    .atZone(ZoneId.of("Asia/Shanghai"))
+                    .toInstant()
+                    .toEpochMilli()));  // 毫秒时间戳
+
+            // 2.2 写入缓存
+            stringRedisTemplate.opsForHash().putAll(key, fields);
+
+            // 2.3 设置过期时间 自动清理缓存
+            long expireAtTimestamp = coupon.getEndTime()
+                    .atZone(ZoneId.of("Asia/Shanghai"))
+                    .toInstant()
+                    .toEpochMilli() + 3600_000L + ThreadLocalRandom.current().nextLong(CacheTimeConstant.RANDOM_TTL_SECONDS + 1);
+            if (expireAtTimestamp > System.currentTimeMillis()){
+                // 如果活动未过期，则设置过期时间为活动结束时间+1小时
+                stringRedisTemplate.expireAt(key, Instant.ofEpochMilli(expireAtTimestamp));
+            }else {
+                // 如果活动已过期，则设置过期时间为1小时
+                long ttl = 3600_000L + ThreadLocalRandom.current().nextLong(CacheTimeConstant.RANDOM_TTL_SECONDS + 1);
+                stringRedisTemplate.expire(key, ttl, TimeUnit.MILLISECONDS);
+            }
+        });
+
+        log.info("秒杀优惠券状态信息缓存预热完成......");
     }
 }

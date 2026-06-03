@@ -9,6 +9,14 @@ import java.util.List;
 
 @Mapper
 public interface CouponMapper {
+
+    /**
+     * 查询所有活动中的优惠券id
+     * @return 优惠券id列表
+     */
+    @Select("SELECT id FROM coupon")
+    List<String> listAllIds();
+
     /**
      * 扣减优惠券库存
      * @param couponId 优惠券id

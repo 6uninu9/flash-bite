@@ -44,4 +44,9 @@ public class CacheKeyConstants {
      * 优惠券占用Key前缀
      */
     public static final String LOCK_COUPON_OCCUPY_KEY = "occupy:coupon:";
+
+    /**
+     * 秒杀优惠券状态Key前缀
+     */
+    public static final String SECKILL_COUPON_STATUS_KEY = "seckill:coupon:status:";
 }

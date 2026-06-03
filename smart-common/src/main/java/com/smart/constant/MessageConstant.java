@@ -39,4 +39,7 @@ public class MessageConstant {
     public static final String PAY_METHOD_ERROR = "支付方式错误";
     public static final String MERCHANT_NO_IS_NULL = "商户号为空";
     public static final String REPEAT_PAYMENT = "重复支付";
+    public static final String ACTIVITY_NOT_EXIST = "活动不存在";
+    public static final String ACTIVITY_NOT_START = "活动未开始";
+    public static final String ACTIVITY_ENDED = "活动已结束";
 }
