@@ -6,6 +6,7 @@ import lombok.Data;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.stereotype.Component;
 
+import java.nio.charset.StandardCharsets;
 import java.security.Key;
 
 @Component
@@ -32,7 +33,11 @@ public class JwtProperties {
     @PostConstruct
     public void init() {
         // 将 Base64 编码的字符串转换为 Key
-        this.adminSecretKey = Keys.hmacShaKeyFor(adminSecretKeyOrigin.getBytes());
-        this.userSecretKey = Keys.hmacShaKeyFor(userSecretKeyOrigin.getBytes());
+        if (userSecretKeyOrigin != null) {
+            this.userSecretKey = Keys.hmacShaKeyFor(userSecretKeyOrigin.getBytes(StandardCharsets.UTF_8));
+        }
+        if (adminSecretKeyOrigin != null) {
+            this.adminSecretKey = Keys.hmacShaKeyFor(adminSecretKeyOrigin.getBytes(StandardCharsets.UTF_8));
+        }
     }
 }

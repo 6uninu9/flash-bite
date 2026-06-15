@@ -1,0 +1,64 @@
+server:
+  port: 8080 # 网关端口
+
+spring:
+  profiles:
+    active: dev
+  cloud:
+    gateway:
+      rate-limit:
+        trust-proxy-headers: false   # 无代理环境设为 false，有 Nginx 时改为 true
+      # 全局跨域配置 (替代原 WebMvcConfiguration 中的 CORS)
+      globalcors:
+        cors-configurations:
+          '[/**]':
+            allowedOriginPatterns: "*" # 允许所有来源
+            allowedMethods: "*"        # 允许所有请求方法
+            allowedHeaders: "*"        # 允许所有请求头
+            allowCredentials: true     # 允许发送 Cookie
+            maxAge: 3600               # 预检请求的缓存时间 (秒)
+      routes:
+        # 用户接口路由
+        - id: user-service-route
+          uri: http://localhost:8081 # 若引入 Nacos/Eureka，可改为 lb://smart-server
+          predicates:
+            - Path=/user/**
+        # 商家管理接口路由
+        - id: admin-service-route
+          uri: http://localhost:8081
+          predicates:
+            - Path=/admin/**
+        # swagger-ui路由
+        - id: swagger-ui
+          uri: http://localhost:8081
+          predicates:
+            - Path=/doc.html,/swagger-ui/**,/webjars/**,/v3/api-docs/**
+
+        # 秒杀接口专属路由 (精细化限流)
+        - id: seckill-route
+          uri: http://localhost:8081
+          predicates:
+            - Path=/user/coupon/seckill
+          filters:
+            # 核心：接入 Redis 令牌桶限流过滤器
+            - name: RequestRateLimiter
+              args:
+                redis-rate-limiter.replenishRate: 10  # 令牌桶每秒填充速率 (QPS)
+                redis-rate-limiter.burstCapacity: 20  # 令牌桶总容量 (最大并发)
+                redis-rate-limiter.requestedTokens: 1 # 每次请求消耗的令牌数
+                key-resolver: "#{@authKeyResolver}"   # 自定义限流维度 (按用户ID)
+  data:
+    redis:
+      host: ${smart.redis.host}
+      port: ${smart.redis.port}
+      password: ${smart.redis.password}
+      database: ${smart.redis.database}
+
+smart:
+  jwt:
+    admin-secret-key-origin: "${random.value}"
+    admin-ttl: 7200000
+    admin-token-name: token
+    user-secret-key-origin: "${random.value}"
+    user-ttl: 7200000
+    user-token-name: Authorization

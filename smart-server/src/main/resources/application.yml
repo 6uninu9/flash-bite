@@ -1,5 +1,5 @@
 server:
-  port: 8080
+  port: 8081
 
 springdoc:
   default-flat-param-object: true
@@ -22,8 +22,6 @@ knife4j:
 spring:
   profiles:
     active: dev
-  main:
-    allow-circular-references: true
   datasource:
     driver-class-name: ${smart.datasource.driver-class-name}
     url: jdbc:mysql://${smart.datasource.host}:${smart.datasource.port}/${smart.datasource.database}

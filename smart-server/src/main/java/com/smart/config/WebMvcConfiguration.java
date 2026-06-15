@@ -1,6 +1,6 @@
 package com.smart.config;
 
-import com.smart.interceptor.JwtTokenUserInterceptor;
+import com.smart.interceptor.UserContextInterceptor;
 import io.swagger.v3.oas.models.OpenAPI;
 import io.swagger.v3.oas.models.info.Info;
 import lombok.extern.slf4j.Slf4j;
@@ -13,10 +13,10 @@ import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 @Configuration
 public class WebMvcConfiguration implements WebMvcConfigurer {
 
-    private final JwtTokenUserInterceptor jwtTokenUserInterceptor;
+    private final UserContextInterceptor userContextInterceptor;
 
-    public WebMvcConfiguration(JwtTokenUserInterceptor jwtTokenUserInterceptor) {
-        this.jwtTokenUserInterceptor = jwtTokenUserInterceptor;
+    public WebMvcConfiguration(UserContextInterceptor userContextInterceptor) {
+        this.userContextInterceptor = userContextInterceptor;
     }
 
     //登录接口需要放行，否则无法获取 Token
@@ -24,7 +24,7 @@ public class WebMvcConfiguration implements WebMvcConfigurer {
     @Override
     public void addInterceptors(InterceptorRegistry registry) {
         log.info("开始注册拦截器");
-        registry.addInterceptor(jwtTokenUserInterceptor)
+        registry.addInterceptor(userContextInterceptor)
                 .addPathPatterns("/user/**") // 拦截/user路径下的所有请求
                 .excludePathPatterns(
                         "/user/user/login",
@@ -33,6 +33,7 @@ public class WebMvcConfiguration implements WebMvcConfigurer {
                         "/swagger-ui/**",             // Swagger UI
                         "/swagger-resources/**",       // Swagger 资源
                         "/doc.html",
+                        "/error", // 排除 Spring Boot 默认的错误处理路径
                         "/user/category/list",
                         "/user/dish/list"             // 用户查看菜品无需登录
                 ); // 排除登录接口
