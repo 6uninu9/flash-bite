@@ -25,7 +25,9 @@ public class MessageConstant {
     public static final String ADDRESS_BOOK_GET_TIMEOUT = "地址簿获取超时";
     public static final String ASYNC_TIMEOUT = "异步任务执行超时";
     public static final String COUPON_STOCK_NOT_ENOUGH = "优惠券已被抢完";
-    public static final String USER_ALREADY_RECEIVED = "用户已领取过该优惠券";
+    public static final String ACTIVITY_TOO_BUSY = "活动太火爆，请稍后再试";
+    public static final String SYSTEM_BUSY = "系统繁忙，请稍后再试";
+    public static final String USER_ALREADY_RECEIVED = "已领取过该优惠券";
     public static final String COUPON_OCCUPIED_BY_OTHER_ORDER = "优惠券已被其他订单占用";
     public static final String COUPON_NOT_EXIST = "优惠券不存在";
     public static final String COUPON_NOT_BELONG_TO_CURRENT_USER = "优惠券不属于当前用户";

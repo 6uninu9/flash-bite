@@ -14,7 +14,7 @@ public class RedissonBloomConfig {
      */
     @Bean("categoryBloomFilter")
     public RBloomFilter<String> goodsBloomFilter(RedissonClient redissonClient) {
-        RBloomFilter<String> bloomFilter = redissonClient.getBloomFilter(BloomFilterBizEnum.COUPON.getOldKey());
+        RBloomFilter<String> bloomFilter = redissonClient.getBloomFilter(BloomFilterBizEnum.CATEGORY.getOldKey());
         bloomFilter.tryInit(1000L, 0.01); // 初始化布隆过滤器 1000个元素，误判率0.01
         return bloomFilter;
     }

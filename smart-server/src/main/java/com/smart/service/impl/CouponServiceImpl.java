@@ -6,6 +6,7 @@ import com.smart.context.BaseContext;
 import com.smart.entity.Coupon;
 import com.smart.entity.UserCoupon;
 import com.smart.exception.BaseException;
+import com.smart.exception.SystemException;
 import com.smart.mapper.CouponMapper;
 import com.smart.mapper.UserCouponMapper;
 import com.smart.service.BloomCacheService;
@@ -20,6 +21,8 @@ import org.apache.rocketmq.spring.core.RocketMQTemplate;
 import org.redisson.api.RBloomFilter;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.core.io.ClassPathResource;
+import org.springframework.dao.DataAccessException;
+import org.springframework.data.redis.RedisSystemException;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.apache.rocketmq.common.message.Message;
@@ -60,6 +63,8 @@ public class CouponServiceImpl implements CouponService, BloomFilterDataService 
         SECKILL_DEDUCT_INVENTORY_SCRIPT.setResultType(Long.class);
     }
 
+    private static final String COUPON_SECKILL = "优惠卷秒杀";
+
     public CouponServiceImpl(StringRedisTemplate stringRedisTemplate, RocketMQTemplate rocketMQTemplate, CouponMapper couponMapper, UserCouponMapper userCouponMapper, BloomCacheService bloomCacheService, RBloomFilter<String> couponBloomFilter) {
         this.stringRedisTemplate = stringRedisTemplate;
         this.rocketMQTemplate = rocketMQTemplate;
@@ -80,83 +85,91 @@ public class CouponServiceImpl implements CouponService, BloomFilterDataService 
         // 1. 查询布隆过滤器是否存在该优惠卷id，避免缓存穿透
         if (bloomCacheService.contains(couponBloomFilter, couponId.toString())) {
             // 1.1. 不存在，直接结束
-            /// 如果前端有错误需求，可以抛出业务异常，让全局异常处理器处理，比如返回错误信息"菜品不存在"
-            log.info("布隆过滤器拦截-优惠卷秒杀-优惠卷不存在");
             throw new BaseException(MessageConstant.COUPON_NOT_EXIST);
         }
 
-        // 2. 判断优惠卷是否在活动时间段内
-        List<Object> times = stringRedisTemplate.opsForHash().multiGet(
-                CacheKeyConstants.SECKILL_COUPON_STATUS_KEY + couponId,
-                Arrays.asList("start_time", "end_time")
-        );
-        if (times.getFirst() == null){
-            log.info("优惠卷秒杀-活动不存在");
-            throw new BaseException(MessageConstant.ACTIVITY_NOT_EXIST);
-        }
-        long startTime = Long.parseLong(times.get(0).toString());
-        long endTime = Long.parseLong(times.get(1).toString());
-        long now = System.currentTimeMillis();
-        if (now<startTime){
-            log.info("优惠卷秒杀-活动未开始");
-            throw new BaseException(MessageConstant.ACTIVITY_NOT_START);
-        }
-        if (now>endTime){
-            log.info("优惠卷秒杀-活动已结束");
-            throw new BaseException(MessageConstant.ACTIVITY_ENDED);
-        }
-
-        // 3. 构建去重键（唯一卷） 避免用户重复抢卷
+        // 2. 构建去重键（唯一键） 避免用户重复抢卷
         Long userId = BaseContext.getCurrentId();
 
-        // 4. 使用redis的Set集合存储用户id完成去重
-        // 不使用setnx写入Redis缓存完成去重原因在于：
-        //  - 若用 SETNX 为每个用户+优惠券组合创建一个独立的Key，会导致大量零散Key（如 "seckill:couponId:123:456"）
-        //    使用定时任务轮询删除这些去重键时 需要扫描大量的去重有seckill:couponId:前缀的key 损耗性能的同时会造成堵塞
-        // 而使用Set集合的原因在于：
-        //  - 每个优惠券只对应一个 Set Key（如 "dedup:seckill:coupon:123"），清理时只需直接删除该Key即可，O(1)操作
-        //  - Set 内部自动去重，判断用户是否已领取只需执行 sadd 命令，根据返回值（0表示已存在）即可快速拒绝重复领取
-        // 4.1. 设置Set集合的key和member
-        String setKey = CacheKeyConstants.SECKILL_COUPON_TAKE_DEDUP_KEY_PREFIX + couponId;   // 例如 "seckill:coupon:123"
-        String member = String.valueOf(userId);         // 成员是 userId
-        // 4.2. 将用户id写入Set集合
-        Long addResult = stringRedisTemplate.opsForSet().add(setKey, member);
-        // 4.3. 判断是否写入成功，如果失败则代表用户领取过该优惠券
-        if (addResult == null || addResult == 0) {
-            log.info("用户{}已经领取过优惠券{}", userId, couponId);
-            throw new BaseException(MessageConstant.USER_ALREADY_RECEIVED);
-        }
+        try {
+            // 3. 判断优惠卷是否在活动时间段内
+            List<Object> times = stringRedisTemplate.opsForHash().multiGet(
+                    CacheKeyConstants.SECKILL_COUPON_STATUS_KEY + couponId,
+                    Arrays.asList("start_time", "end_time")
+            );
+            if (times.getFirst() == null) {
+                throw new BaseException(COUPON_SECKILL + MessageConstant.ACTIVITY_NOT_EXIST);
+            }
+            long startTime = Long.parseLong(times.get(0).toString());
+            long endTime = Long.parseLong(times.get(1).toString());
+            long now = System.currentTimeMillis();
+            if (now < startTime) {
+                throw new BaseException(COUPON_SECKILL + MessageConstant.ACTIVITY_NOT_START);
+            }
+            if (now > endTime) {
+                throw new BaseException(COUPON_SECKILL + MessageConstant.ACTIVITY_ENDED);
+            }
 
-        // 5. 扣减redis中的优惠券库存，完成预扣减
-        // 可以使用decrement扣减原子命令 但是是不加判断的扣减 缓存中的库存显示可能会被扣为负数
-        // 而这里使用Lua脚本实现判断+扣减的原子化操作
-        String stockKey = CacheKeyConstants.SECKILL_COUPON_STOCK_KEY + couponId;
-        // 5.1. 执行扣减脚本
-        Long result = stringRedisTemplate.execute(
-                SECKILL_DEDUCT_INVENTORY_SCRIPT, // lua脚本
-                Collections.singletonList(stockKey), // 缓存的key
-                String.valueOf(1) // lua脚本的可变参数参数，只能接收数组
-        );
-        // 5.2. 判断是否扣减成功
-        if (result == 0) {
-            log.info("活动库存不足");
-            throw new BaseException(MessageConstant.COUPON_STOCK_NOT_ENOUGH);
+
+            // 4. 使用redis的Set集合存储用户id完成去重
+            // 不使用setnx写入Redis缓存完成去重原因在于：
+            //  - 若用 SETNX 为每个用户+优惠券组合创建一个独立的Key，会导致大量零散Key（如 "seckill:couponId:123:456"）
+            //    使用定时任务轮询删除这些去重键时 需要扫描大量的去重有seckill:couponId:前缀的key 损耗性能的同时会造成堵塞
+            // 而使用Set集合的原因在于：
+            //  - 每个优惠券只对应一个 Set Key（如 "dedup:seckill:coupon:123"），清理时只需直接删除该Key即可，O(1)操作
+            //  - Set 内部自动去重，判断用户是否已领取只需执行 sadd 命令，根据返回值（0表示已存在）即可快速拒绝重复领取
+            // 4.1. 设置Set集合的key和member
+            String setKey = CacheKeyConstants.SECKILL_COUPON_TAKE_DEDUP_KEY_PREFIX + couponId;   // 例如 "seckill:coupon:123"
+            String member = String.valueOf(userId);         // 成员是 userId
+            // 4.2. 将用户id写入Set集合
+            Long addResult = stringRedisTemplate.opsForSet().add(setKey, member);
+            // 4.3. 判断是否写入成功，如果失败则代表用户领取过该优惠券
+            if (addResult == null || addResult == 0) {
+                throw new BaseException(MessageConstant.USER_ALREADY_RECEIVED);
+            }
+
+            // 5. 扣减redis中的优惠券库存，完成预扣减
+            // 可以使用decrement扣减原子命令 但是是不加判断的扣减 缓存中的库存显示可能会被扣为负数
+            // 而这里使用Lua脚本实现判断+扣减的原子化操作
+            String stockKey = CacheKeyConstants.SECKILL_COUPON_STOCK_KEY + couponId;
+            // 5.1. 执行扣减脚本
+            Long result = stringRedisTemplate.execute(
+                    SECKILL_DEDUCT_INVENTORY_SCRIPT, // lua脚本
+                    Collections.singletonList(stockKey), // 缓存的key
+                    String.valueOf(1) // lua脚本的可变参数参数，只能接收数组
+            );
+            // 5.2. 判断是否扣减成功
+            if (result == 0) {
+                throw new BaseException(MessageConstant.COUPON_STOCK_NOT_ENOUGH);
+            }
+        } catch (BaseException e) {
+            // 业务异常直接抛出
+            throw e;
+        } catch (DataAccessException e) {
+            // 降级策略：Redis 连接异常、超时、宕机时，触发快速失败（熔断），保护 DB
+            throw new BaseException(MessageConstant.ACTIVITY_TOO_BUSY);
+        } catch (Exception e) {
+            throw new SystemException(MessageConstant.SYSTEM_BUSY, e);
         }
 
         // 6.向RocketMQ中发送消息异步落库和插入用户的优惠券抢购记录
         // 对于异步落库 除了消息队列异步解耦 还可以设置定时任务定期从redis同步到数据库
         // 而插入数据还是需要发送消息处理 要么直接串行化
-        rocketMQTemplate.asyncSend("seckillTopic", couponId + "-" + userId, new SendCallback() {
-            @Override
-            public void onSuccess(SendResult sendResult) {
-                log.info("消息发送成功：{}", sendResult);
-            }
+        try {
+            rocketMQTemplate.asyncSend("seckillTopic", couponId + "-" + userId, new SendCallback() {
+                @Override
+                public void onSuccess(SendResult sendResult) {
+                    log.info("秒杀MQ消息发送成功：{}", sendResult);
+                }
 
-            @Override
-            public void onException(Throwable throwable) {
-                log.error("消息发送失败：{}", throwable.getMessage());
-            }
-        });
+                @Override
+                public void onException(Throwable throwable) {
+                    log.error("秒杀MQ消息发送失败，需人工或定时任务补偿：{}", throwable.getMessage());
+                }
+            });
+        } catch (Exception e) {
+            throw new SystemException(MessageConstant.SYSTEM_BUSY, e);
+        }
     }
 
     /**

@@ -1,6 +1,7 @@
 package com.smart.service.impl;
 
 import com.alibaba.fastjson.JSONObject;
+import com.github.benmanes.caffeine.cache.Cache;
 import com.github.pagehelper.Page;
 import com.github.pagehelper.PageHelper;
 import com.smart.constant.CacheTimeConstant;
@@ -12,6 +13,7 @@ import com.smart.dto.DishDTO;
 import com.smart.dto.DishPageQueryDTO;
 import com.smart.entity.Dish;
 import com.smart.entity.DishFlavor;
+import com.smart.exception.BaseException;
 import com.smart.exception.DeletionNotAllowedException;
 import com.smart.mapper.DishFlavorMapper;
 import com.smart.mapper.DishMapper;
@@ -29,6 +31,7 @@ import org.redisson.api.RLock;
 import org.redisson.api.RedissonClient;
 import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.data.redis.RedisSystemException;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -67,9 +70,16 @@ public class DishServiceImpl implements DishService {
 
     private final HotCategoryAutoDetectTask hotCategoryAutoDetectTask;
 
+    // 注入 Caffeine 本地缓存
+    @Qualifier("hotDishLocalCache")
+    private final Cache<String, List<DishVO>> hotDishLocalCache;
+
+    // 本地缓存空值标记，防止缓存穿透
+    private static final List<DishVO> LOCAL_EMPTY_MARKER = List.of();
+
     private static final String LOCK_CATEGORY_DISH_REBUILD = "lock:category:dish:rebuild";
 
-    public DishServiceImpl(DishMapper dishMapper, DishFlavorMapper dishFlavorMapper, StringRedisTemplate stringRedisTemplate, RedissonClient redissonClient, RBloomFilter<String> categoryBloomFilter, BloomCacheService bloomCacheService, RocketMQTemplate rocketMQTemplate, Executor rebuildDishCacheExecutor, HotCategoryAutoDetectTask hotCategoryAutoDetectTask) {
+    public DishServiceImpl(DishMapper dishMapper, DishFlavorMapper dishFlavorMapper, StringRedisTemplate stringRedisTemplate, RedissonClient redissonClient, RBloomFilter<String> categoryBloomFilter, BloomCacheService bloomCacheService, RocketMQTemplate rocketMQTemplate, Executor rebuildDishCacheExecutor, HotCategoryAutoDetectTask hotCategoryAutoDetectTask, Cache<String, List<DishVO>> hotDishLocalCache) {
         this.dishMapper = dishMapper;
         this.dishFlavorMapper = dishFlavorMapper;
         this.stringRedisTemplate = stringRedisTemplate;
@@ -79,6 +89,7 @@ public class DishServiceImpl implements DishService {
         this.rocketMQTemplate = rocketMQTemplate;
         this.rebuildDishCacheExecutor = rebuildDishCacheExecutor;
         this.hotCategoryAutoDetectTask = hotCategoryAutoDetectTask;
+        this.hotDishLocalCache = hotDishLocalCache;
     }
 
     /**
@@ -94,7 +105,7 @@ public class DishServiceImpl implements DishService {
         if (bloomCacheService.contains(categoryBloomFilter, categoryId.toString())) {
             // 1.1. 不存在，直接返回空集合
             /// 如果前端有错误需求，可以抛出业务异常，让全局异常处理器处理，比如返回错误信息"菜品不存在"
-            log.info("布隆过滤器拦截-根据分类查询菜品-分类不存在");
+            log.info("布隆过滤器拦截-根据分类查询菜品-分类不存在：{}",categoryId);
             return List.of();
         }
 
@@ -144,6 +155,9 @@ public class DishServiceImpl implements DishService {
 
         // 设置热缓存逻辑过期时间
         setHotCacheLogicalExpire(dishDTO.getCategoryId());
+
+        // 广播清理所有节点的 L1 本地缓存
+        broadcastCleanLocalCache(dishDTO.getCategoryId());
     }
 
     /**
@@ -174,6 +188,9 @@ public class DishServiceImpl implements DishService {
         deleteColdCache(dishDTO.getCategoryId());
 
         setHotCacheLogicalExpire(dishDTO.getCategoryId());
+
+        // 广播清理所有节点的 L1 本地缓存
+        broadcastCleanLocalCache(dishDTO.getCategoryId());
     }
 
     /**
@@ -202,10 +219,40 @@ public class DishServiceImpl implements DishService {
 
         //循环设置热缓存逻辑过期时间
         ids.forEach(this::setHotCacheLogicalExpire);
+
+        //广播清理所有节点的 L1 本地缓存
+        ids.forEach(this::broadcastCleanLocalCache);
+    }
+
+    /**
+     * 广播清理多节点的 L1 本地缓存
+     * 使用 RocketMQ 广播模式，即使 Redis 宕机也能保证各节点本地缓存最终一致
+     */
+    private void broadcastCleanLocalCache(Long categoryId) {
+        // 先清理当前节点的本地缓存
+        hotDishLocalCache.invalidate(String.valueOf(categoryId));
+
+        // 发送广播消息通知其他节点清理
+        try {
+            rocketMQTemplate.asyncSend("dishLocalCacheCleanTopic", categoryId, new SendCallback() {
+                @Override
+                public void onSuccess(SendResult sendResult) {
+                    log.debug("L1本地缓存清理广播消息发送成功，categoryId:{}", categoryId);
+                }
+
+                @Override
+                public void onException(Throwable throwable) {
+                    log.error("L1本地缓存清理广播消息发送失败，categoryId:{}", categoryId, throwable);
+                }
+            });
+        } catch (Exception e) {
+            log.error("发送L1本地缓存清理广播异常，categoryId:{}", categoryId, e);
+        }
     }
 
     /**
      * 菜品分页查询
+     *
      * @param dishPageQueryDTO 菜品分页查询参数
      * @return 菜品分页结果
      */
@@ -266,6 +313,7 @@ public class DishServiceImpl implements DishService {
 
     /**
      * 设置热缓存逻辑过期
+     *
      * @param id id
      */
     private void setHotCacheLogicalExpire(Long id) {
@@ -322,23 +370,13 @@ public class DishServiceImpl implements DishService {
             // 2.1. 缓存命中，直接返回
             return JSONObject.parseArray(redisDataJson, DishVO.class);
         } else if (redisDataJson != null) {
-            // 2.2. 缓存空结果，可能是为了避免缓存穿透
+            // 2.2. 缓存空结果（空字符串），可能是为了避免缓存穿透
             /// 如果前端有错误需求，可以抛出业务异常，让全局异常处理器处理
             log.info("冷缓存的空结果");
             return List.of();
         }
 
-        // 3. 缓存不存在，但是热点数据，走热数据逻辑
-        // 这一步主要针对缓存失效，由于标记热点的缓存和拉取热点缓存保存到本地不是同时进行的是有一个短暂的时间窗口，
-        // 所以会发生key已经晋升为了热点数据，但是还没有缓存到本地，且此时原本的冷数据缓存刚好失效的极端场景，
-        // 由此就会引发缓存击穿，所以在缓存未命中时得先手动拉取一次热点缓存判断是不是热点数据
-        if (Boolean.TRUE.equals(stringRedisTemplate.opsForSet().isMember(CacheKeyConstants.HOT_CATEGORY_IDS_KEY, String.valueOf(categoryId)))) {
-            log.info("冷缓存转为走热缓存分支");
-            // 如果是热点数据，那么就走热数据逻辑，进行缓存重建
-            return getHotCategoryDishes(categoryId);
-        }
-
-        // 4. 缓存不存在，且真不是热点数据，构建菜品查询实体以查询数据库回种冷缓存
+        // 4. 缓存不存在，构建菜品查询实体以查询数据库回种冷缓存
         Dish dish = new Dish();
         dish.setCategoryId(categoryId);
         dish.setStatus(StatusConstant.ENABLE);//查询起售中的菜品
@@ -379,16 +417,27 @@ public class DishServiceImpl implements DishService {
 
     /**
      * 获取热数据
+     * 引入 L1 Caffeine 缓存与 Redis 降级逻辑，提高系统的可靠性
      *
      * @param categoryId 分类id
      * @return 菜品数据
      */
     private List<DishVO> getHotCategoryDishes(Long categoryId) {
-        // 1. 查询缓存
-        String key = CacheKeyConstants.HOT_CATEGORY_KEY_PREFIX + categoryId;
-        String redisDataJson = stringRedisTemplate.opsForValue().get(key);
 
-        // 2. 缓存命中
+        // 1. 获取本地缓存key
+        String localKey = String.valueOf(categoryId);
+
+        // 2. 查询 L1 本地缓存
+        List<DishVO> localCacheData = hotDishLocalCache.getIfPresent(localKey);
+        if (localCacheData != null) {
+            log.info("L1本地热缓存命中, categoryId:{}", categoryId);
+            // 如果是空值标记（缓存穿透），直接返回空集合，否则返回缓存的数据
+            return localCacheData == LOCAL_EMPTY_MARKER ? List.of() : localCacheData;
+        }
+
+        // 3. 构建redis热缓存key
+        String redisKey = CacheKeyConstants.HOT_CATEGORY_KEY_PREFIX + categoryId;
+
         // 为避免缓存穿透，我将查询数据库得到空结果的key对应的RedisData中的data字段设置为null
         // 只有Json字符串不为空且data字段不为空时，才缓存命中返回数据
         // 那为什么是置为null而不是空字符串呢？
@@ -396,51 +445,101 @@ public class DishServiceImpl implements DishService {
         //      而空字符串语义混乱"存在但值为空"或者"根本不存在"
         //   2. 类型安全性：null对所有 Java 类型（Long、Integer、自定义对象等）都安全，
         //      而空字符仅对 String 类型安全，其他类型反序列化直接抛出异常
-        if (redisDataJson != null && JSONObject.parseObject(redisDataJson, RedisData.class).getData() != null) {
+        try {
+            // 4. 查询缓存
+            String redisDataJson = stringRedisTemplate.opsForValue().get(redisKey);
+            // 5. 缓存存在
+            if (redisDataJson != null) {
+                // 5.1. 将Json字符串反序列化为RedisData
+                RedisData redisData = JSONObject.parseObject(redisDataJson, RedisData.class);
 
-            log.info("热缓存命中");
+                // 5.2. 判断是否为用于防止缓存穿透的空值标记
+                if (redisData.getData() == null) {
+                    log.info("L2Redis热缓存命中空值标记(防穿透), categoryId:{}", categoryId);
+                    hotDishLocalCache.put(localKey, LOCAL_EMPTY_MARKER);
+                    return List.of();
+                }
 
-            // 2.1. 缓存命中，将Json字符串反序列化为RedisData
-            RedisData redisData = JSONObject.parseObject(redisDataJson, RedisData.class);
+                // 5.3. 将redisData中的data提取为List<DishVO>
+                    /*
+                      JSONObject.toJSONString(Object)	序列化：Java 对象 → JSON 字符串
+                      JSONObject.parseArray(String, Class) 反序列化：JSON 数组 → List<T>
+                    */
+                List<DishVO> dishVOList = JSONObject.parseArray(JSONObject.toJSONString(redisData.getData()), DishVO.class);
 
-            // 2.2. 将redisData中的data提取为List<DishVO>
-            /*
-            JSONObject.toJSONString(Object)	序列化：Java 对象 → JSON 字符串
-            JSONObject.parseArray(String, Class) 反序列化：JSON 数组 → List<T>
-             */
-            List<DishVO> dishVOList = JSONObject.parseArray(JSONObject.toJSONString(redisData.getData()), DishVO.class);
+                // 5.4. 校验反序列化结果，防止 data 是 [] 导致的空集合漏网，理论上不可能为空，只是进行防御性编程
+                if (dishVOList == null || dishVOList.isEmpty()) {
+                    log.warn("L2Redis热缓存数据异常或为空集合，降级处理, categoryId:{}", categoryId);
+                    hotDishLocalCache.put(localKey, LOCAL_EMPTY_MARKER);
+                    return List.of();
+                }
 
+                log.info("L2Redis热缓存命中, categoryId:{}", categoryId);
 
-            // 2.3. 判断逻辑时间是否过期
-            if (redisData.getExpireTime() > System.currentTimeMillis()) {
-                // 2.3.1 未过期，修改最近一次访问时间
-                redisData.setLastAccessTime(System.currentTimeMillis());
-                stringRedisTemplate.opsForValue().set(key, JSONObject.toJSONString(redisData));
-                // 2.3.2. 返回数据
+                // 5.5. 缓存命中，判断逻辑时间是否过期
+                if (redisData.getExpireTime() > System.currentTimeMillis()) {
+                    // 5.5.1 未过期，回写 L1 并返回
+                    hotDishLocalCache.put(localKey, dishVOList);
+                    // 5.5.2 异步更新缓存最后访问时间（不阻塞主流程）
+                    CompletableFuture.runAsync(() -> {
+                        redisData.setLastAccessTime(System.currentTimeMillis());
+                        stringRedisTemplate.opsForValue().set(redisKey, JSONObject.toJSONString(redisData));
+                    }, rebuildDishCacheExecutor);
+                    return dishVOList;
+                }
+
+                // 5.6. 过期，回写L1异步缓存，并异步重建缓存
+                hotDishLocalCache.put(localKey, dishVOList);
+                asyncBuildHotCategoryCache(redisKey, categoryId);
+
+                // 5.7. 返回旧数据
                 return dishVOList;
             }
 
-            // 2.4. 过期，异步重建缓存
-            asyncBuildHotCategoryCache(key, categoryId);
+            // 6. 缓存不存在，异步建立缓存
+            // 处理空结果缓存失效或热点key首次晋升缓存刚好失效
+            asyncBuildHotCategoryCache(redisKey, categoryId);
 
-            // 2.5. 返回旧数据
-            return dishVOList;
-        } else if (redisDataJson != null) {
-            // 3. 缓存存在但对应的data字段为null，则返回空结果
-            log.info("热缓存空结果");
+            // 7. 返回空数据
+            return getColdCategoryDishes(categoryId);
+        } catch (RedisSystemException e) {
+            // Redis 异常，正常降级
+            log.error("Redis不可用，触发降级，categoryId:{}", categoryId, e);
+            return fallbackQueryDbAndCacheLocal(localKey, categoryId);
+        } catch (Exception e) {
+            // 其他异常直接抛出或包装后抛出，让上层统一处理
+            log.error("获取热数据发生非预期异常，categoryId:{}", categoryId, e);
+            throw new BaseException("系统繁忙，请稍后再试");
+        }
+    }
+
+    /**
+     * 降级逻辑：Redis 不可用时，直接查询 DB 并写入 L1 本地缓存
+     */
+    private List<DishVO> fallbackQueryDbAndCacheLocal(String localKey, Long categoryId) {
+        Dish dish = new Dish();
+        dish.setCategoryId(categoryId);
+        dish.setStatus(StatusConstant.ENABLE);
+        List<Dish> dishList = dishMapper.list(dish);
+
+        if (dishList == null || dishList.isEmpty()) {
+            hotDishLocalCache.put(localKey, LOCAL_EMPTY_MARKER);
             return List.of();
         }
 
-        // 4. 缓存不存在，异步建立缓存
-        // 处理空结果缓存失效或热点key首次晋升缓存刚好失效
-        asyncBuildHotCategoryCache(key, categoryId);
-
-        // 5. 返回空数据
-        return List.of();
+        List<DishVO> dishVOList = buildDishVOList(dishList);
+        // 降级场景下回写 L1，依靠 Caffeine 配置的 30s 物理过期自动清理
+        hotDishLocalCache.put(localKey, dishVOList);
+        return dishVOList;
     }
 
-
-    private void asyncBuildHotCategoryCache(String key, Long categoryId) {
+    /**
+     * 异步重建热缓存
+     *
+     * @param redisKey   缓存key
+     * @param categoryId 分类id
+     */
+    private void asyncBuildHotCategoryCache(String redisKey, Long categoryId) {
         // 逻辑时间过期，异步加锁重建缓存
 
         /*
@@ -449,6 +548,7 @@ public class DishServiceImpl implements DishService {
           所以设置3秒的持锁时间，即锁在3秒后释放，3秒内如果再次有查询请求则直接返回旧数据
         */
 
+        String localKey = String.valueOf(categoryId);
         // 异步重建缓存
         CompletableFuture.runAsync(() -> {
             // 1. 创建分布式锁
@@ -458,49 +558,39 @@ public class DishServiceImpl implements DishService {
                 // 2. 尝试获取锁
                 if (lock.tryLock(0, 3, TimeUnit.SECONDS)) { // 获取锁成功，进行缓存重建
                     log.info("锁获取成功，开始建立缓存");
-                    RedisData redisData = new RedisData();
 
                     // 3. 查询数据库
-                    Dish dish = new Dish();
-                    dish.setCategoryId(categoryId);
-                    dish.setStatus(StatusConstant.ENABLE);
-                    List<Dish> dishList = dishMapper.list(dish);
+                    List<DishVO> dishVOList = queryDishFromDb(categoryId);
 
-                    // 4. 查询结果为空，则缓存空结果，避免缓存穿透
-                    if (dishList == null || dishList.isEmpty()) {
-                        redisData.setData(null);
-                        // 空值的逻辑过期时间比物理过期时间少30秒
-                        // 当逻辑过期时间到达时，物理过期时间也刚好到达，Redis 会自动删除这个 key 即使代码检查到逻辑过期，也不会触发异步更新
-                        redisData.setExpireTime(System.currentTimeMillis() + (CacheTimeConstant.NULL_TTL_SECONDS - 30) * 1000);
-                        redisData.setLastAccessTime(System.currentTimeMillis());
-                        stringRedisTemplate.opsForValue().set(key,
-                                JSONObject.toJSONString(redisData),
-                                CacheTimeConstant.NULL_TTL_SECONDS,
-                                TimeUnit.SECONDS);
-                        return;
+                    try {
+                        RedisData redisData = new RedisData();
+                        // 4. 查询结果为空，则缓存空结果，避免缓存穿透
+                        if (dishVOList.isEmpty()) {
+                            redisData.setData(null);
+                            // 空值的逻辑过期时间比物理过期时间少30秒
+                            // 当逻辑过期时间到达时，物理过期时间也刚好到达，Redis 会自动删除这个 key 即使代码检查到逻辑过期，也不会触发异步更新
+                            redisData.setExpireTime(System.currentTimeMillis() + (CacheTimeConstant.NULL_TTL_SECONDS - 30) * 1000);
+                            redisData.setLastAccessTime(System.currentTimeMillis());
+                            stringRedisTemplate.opsForValue().set(redisKey,
+                                    JSONObject.toJSONString(redisData),
+                                    CacheTimeConstant.NULL_TTL_SECONDS,
+                                    TimeUnit.SECONDS);
+                            return;
+                        } else {
+                            // 5. 查询结果不为空，将数据缓存到redis中
+                            redisData = RedisData.builder()
+                                    .data(dishVOList)
+                                    .expireTime(System.currentTimeMillis() + CacheTimeConstant.LOGICAL_EXPIRE_SECONDS * 1000)
+                                    .lastAccessTime(System.currentTimeMillis())
+                                    .build();
+                            stringRedisTemplate.opsForValue().set(redisKey, JSONObject.toJSONString(redisData)); // 将RedisData对象转为JSON字符串存进redis
+                        }
+                    } catch (Exception e) {
+                        log.error("Redis热缓存重建失败，降级仅保留L1缓存，categoryId:{}", categoryId, e);
                     }
 
-                    // 5. 查询结果不为空，将数据缓存到redis中
-                    // 5.1. 封装查询结果
-                    List<DishVO> dishVOList = new ArrayList<>();
-                    for (Dish d : dishList) {
-                        DishVO dishVO = new DishVO();
-                        BeanUtils.copyProperties(d, dishVO);
-
-                        // 根据菜品id查询对应的口味
-                        List<DishFlavor> flavors = dishFlavorMapper.getByDishId(d.getId());
-
-                        dishVO.setFlavors(flavors);
-                        dishVOList.add(dishVO);
-                    }
-
-                    // 6. 缓存数据
-                    redisData = RedisData.builder()
-                            .data(dishVOList)
-                            .expireTime(System.currentTimeMillis() + CacheTimeConstant.LOGICAL_EXPIRE_SECONDS * 1000)
-                            .lastAccessTime(System.currentTimeMillis())
-                            .build();
-                    stringRedisTemplate.opsForValue().set(key, JSONObject.toJSONString(redisData)); // 将RedisData对象转为JSON字符串存进redis
+                    // 6. 无论 Redis 是否成功，都回写 L1 本地缓存，保证当前节点后续请求命中
+                    hotDishLocalCache.put(localKey, dishVOList.isEmpty() ? LOCAL_EMPTY_MARKER : dishVOList);
                 }
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
@@ -514,6 +604,54 @@ public class DishServiceImpl implements DishService {
                 throw new RuntimeException(e);
             }
         }, rebuildDishCacheExecutor);
+    }
+
+    /**
+     * 根据分类ID从数据库查询菜品信息
+     *
+     * @param categoryId 菜品分类ID
+     * @return 返回菜品视图对象列表，如果没有找到则返回空列表
+     */
+    private List<DishVO> queryDishFromDb(Long categoryId) {
+        // 创建菜品对象并设置查询条件
+        Dish dish = new Dish();
+        dish.setCategoryId(categoryId);      // 设置分类ID
+        dish.setStatus(StatusConstant.ENABLE); // 设置状态为启用
+        // 执行查询，获取符合条件的菜品列表
+        List<Dish> dishList = dishMapper.list(dish);
+        // 判断查询结果是否为空
+        if (dishList == null || dishList.isEmpty()) {
+            return List.of();  // 返回空列表
+        }
+        // 将查询结果转换为视图对象列表
+        return buildDishVOList(dishList);
+    }
+
+    /**
+     * 构建菜品视图对象列表
+     * 将Dish实体列表转换为DishVO视图对象列表，并包含相关的口味信息
+     *
+     * @param dishList 菜品实体列表
+     * @return 菜品视图对象列表，包含菜品基本信息和口味信息
+     */
+    private List<DishVO> buildDishVOList(List<Dish> dishList) {
+        // 创建空的DishVO列表用于存储转换后的结果
+        List<DishVO> dishVOList = new ArrayList<>();
+        // 遍历传入的菜品实体列表
+        for (Dish d : dishList) {
+            // 创建新的DishVO对象
+            DishVO dishVO = new DishVO();
+            // 将Dish实体的属性复制到DishVO对象中
+            BeanUtils.copyProperties(d, dishVO);
+            // 根据菜品ID查询相关的口味信息
+            List<DishFlavor> flavors = dishFlavorMapper.getByDishId(d.getId());
+            // 将查询到的口味信息设置到DishVO对象中
+            dishVO.setFlavors(flavors);
+            // 将处理好的DishVO对象添加到结果列表中
+            dishVOList.add(dishVO);
+        }
+        // 返回处理后的DishVO列表
+        return dishVOList;
     }
 
     /**

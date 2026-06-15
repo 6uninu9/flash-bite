@@ -3,14 +3,21 @@ package com.smart.task;
 import com.smart.constant.CacheKeyConstants;
 import lombok.extern.slf4j.Slf4j;
 
+import org.redisson.client.RedisTimeoutException;
+import org.springframework.dao.QueryTimeoutException;
+import org.springframework.data.redis.RedisConnectionFailureException;
+import org.springframework.data.redis.RedisSystemException;
 import org.springframework.data.redis.connection.zset.Aggregate;
+import org.springframework.data.redis.core.DefaultTypedTuple;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.ZSetOperations;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.LongAdder;
 
 /**
  * 热门分类自动检测器
@@ -36,12 +43,16 @@ public class HotCategoryAutoDetectTask {
     // 本地缓存
     private volatile Map<String, Boolean> hotIds = new HashMap<>();
 
+    // 本地降级计数器
+    private final ConcurrentHashMap<String, LongAdder> localAccessCounts = new ConcurrentHashMap<>();
+
     private static final int TIME_SLICE_SECONDS = 5;          // 时间片大小（秒）
     private static final int WINDOW_SIZE = 6;                 // 滑动窗口包含的时间片数
     private static final long ABSOLUTE_HOT_THRESHOLD = 50;  // 绝对热点阈值
     private static final double DYNAMIC_THRESHOLD_MULTIPLE = 3.0; // 动态阈值倍数
     private static final long TEMP_KEY_TTL_SECONDS = 30;      // 临时Key过期时间
     private static final long TIME_SLICE_KEY_TTL_SECONDS = TIME_SLICE_SECONDS * (WINDOW_SIZE + 3); // 时间片Key过期兜底
+    private static final int MAX_LOCAL_COUNTER_SIZE = 10000; // 本地降级计数器最大容量
 
     public HotCategoryAutoDetectTask(StringRedisTemplate stringRedisTemplate) {
         this.stringRedisTemplate = stringRedisTemplate;
@@ -52,44 +63,50 @@ public class HotCategoryAutoDetectTask {
     public void detectAndRefresh() {
         log.info("开始执行滑动窗口热点检测任务...");
 
-        // 1. 获取上一个完整时间片的序号
-        long nowSlice = System.currentTimeMillis() / 1000 / TIME_SLICE_SECONDS; // 当前时间片的序号
-        long lastCompleteSlice = nowSlice - 1;   // 上一个完整时间片的序号
+        boolean redisFailed = false;
+        Set<ZSetOperations.TypedTuple<String>> allScores = null;
 
-        // 2. 构建窗口内所有时间片的key
-        // 共WINDOW_SIZE个，从 lastCompleteSlice 往前推，
-        // 实现自动加入时间片，即当次的循环得到的窗口结果自动包含上一次的最新时间片和自动移除上次窗口最早的时间片
-        List<String> windowSliceKeys = new ArrayList<>();
-        for (int i = 0; i < WINDOW_SIZE; i++) {
-            long slice = lastCompleteSlice - i;
-            windowSliceKeys.add(getTimeSliceKey(slice));
+        try {
+            allScores = fetchScoresFromRedis();
+        }  catch (RedisConnectionFailureException | RedisTimeoutException | QueryTimeoutException e) {
+            // 明确的基础设施/连接异常，应该降级
+            log.error("Redis连接或超时异常，触发降级", e);
+            redisFailed = true;
+        } catch (RedisSystemException e) {
+            // Redis 集群/主从切换等系统级异常，也可降级
+            log.error("Redis系统异常，触发降级", e);
+            redisFailed = true;
+        } catch (Exception e) {
+            // 其他未预期的异常（如序列化错误、空指针、参数错误）需要重点关注
+            log.error("Redis操作发生未预期异常，可能是代码或数据问题，终止任务", e);
+            // 可以选择重新抛出，让调度器感知（如果框架支持Micrometer+Prometheus）或至少触发严重告警
+            throw new RuntimeException("Redis热点检测出现未预期异常", e);
         }
 
-        // 3. 合并窗口内所有时间片的ZSet，存储到临时Key
-        if (windowSliceKeys.isEmpty()) {
-            log.info("获取不到时间片的key");
-            return;
-        }
-        String firstKey = windowSliceKeys.getFirst();  // 取出合并的第一个key
-        List<String> otherKeys = windowSliceKeys.subList(1, windowSliceKeys.size()); // 取出剩余合并的key
-        String tempUnionKey = CacheKeyConstants.CATEGORY_QPS_STATS_KEY + ":union:" + lastCompleteSlice;
-        stringRedisTemplate.opsForZSet()
-                .unionAndStore(firstKey, otherKeys, tempUnionKey, Aggregate.SUM);
+        // 2. 状态判定：区分"Redis正常但无数据"与"Redis异常"
+        if (!redisFailed) {
+            if (allScores == null || allScores.isEmpty()) {
+                // Redis 正常，但窗口内确实没流量。直接清空热点，无需降级本地。
+                log.info("Redis正常但窗口内无任何访问数据，跳过热点更新");
+                hotIds.clear();
+                // 顺手清理本地计数器，防止脏数据残留
+                localAccessCounts.clear();
+                return;
+            }
+        } else {
+            // Redis 异常，强制降级到本地计数器
+            log.warn("触发本地降级热点计算...");
+            allScores = fetchScoresFromLocal();
 
-        // 4. 为临时Key设置TTL30秒兜底（防止残留）
-        stringRedisTemplate.expire(tempUnionKey, TEMP_KEY_TTL_SECONDS, TimeUnit.SECONDS);
-
-        // 5. 获取所有分类及其窗口总分（合并结果）
-        Set<ZSetOperations.TypedTuple<String>> allScores =
-                stringRedisTemplate.opsForZSet().reverseRangeWithScores(tempUnionKey, 0, -1);
-        log.info("所有分类及其窗口总分：{}", allScores);
-        if (allScores == null || allScores.isEmpty()) {
-            log.info("窗口内无任何访问数据，跳过热点更新");
-            cleanUp(tempUnionKey, lastCompleteSlice);
-            return;
+            if (allScores.isEmpty()) {
+                log.info("本地降级也无访问数据，跳过热点更新");
+                hotIds.clear();
+                return;
+            }
         }
 
         // 6. 获取最终热点阈值
+        // 走到这里，allScores 必定有数据（无论来自 Redis 还是本地）
         double finalThreshold = getFinalThreshold(allScores);
 
         // 7. 筛选出超过阈值的分类
@@ -110,9 +127,64 @@ public class HotCategoryAutoDetectTask {
             hotIds.clear();
             log.info("未检测到热点分类，已清空本地热点缓存");
         }
+    }
 
-        // 9. 清理临时Key和过期时间片
+    private Set<ZSetOperations.TypedTuple<String>> fetchScoresFromLocal() {
+        if (localAccessCounts.isEmpty()) {
+            return Collections.emptySet();
+        }
+
+        Set<ZSetOperations.TypedTuple<String>> localScores = new HashSet<>();
+        for (Map.Entry<String, LongAdder> entry : localAccessCounts.entrySet()) {
+            long count = entry.getValue().sumThenReset(); // 获取当前计数并重置
+            if (count > 0) {
+                // 使用 Spring Data Redis 提供的标准实现类，避免自定义类带来的类型转换隐患
+                localScores.add(new DefaultTypedTuple<>(entry.getKey(), (double) count));
+            }
+        }
+        // 清理值为0的条目，防止 Map 无限膨胀
+        localAccessCounts.entrySet().removeIf(entry -> entry.getValue().sum() == 0);
+
+        return localScores;
+    }
+
+    private Set<ZSetOperations.TypedTuple<String>> fetchScoresFromRedis() {
+// 1. 获取上一个完整时间片的序号
+        long nowSlice = System.currentTimeMillis() / 1000 / TIME_SLICE_SECONDS; // 当前时间片的序号
+        long lastCompleteSlice = nowSlice - 1;   // 上一个完整时间片的序号
+
+        // 2. 构建窗口内所有时间片的key
+        // 共WINDOW_SIZE个，从 lastCompleteSlice 往前推，
+        // 实现自动加入时间片，即当次的循环得到的窗口结果自动包含上一次的最新时间片和自动移除上次窗口最早的时间片
+        List<String> windowSliceKeys = new ArrayList<>();
+        for (int i = 0; i < WINDOW_SIZE; i++) {
+            long slice = lastCompleteSlice - i;
+            windowSliceKeys.add(getTimeSliceKey(slice));
+        }
+
+        // 3. 合并窗口内所有时间片的ZSet，存储到临时Key
+        if (windowSliceKeys.isEmpty()) {
+            log.info("获取不到时间片的key");
+            return null;
+        }
+        String firstKey = windowSliceKeys.getFirst();  // 取出合并的第一个key
+        List<String> otherKeys = windowSliceKeys.subList(1, windowSliceKeys.size()); // 取出剩余合并的key
+        String tempUnionKey = CacheKeyConstants.CATEGORY_QPS_STATS_KEY + ":union:" + lastCompleteSlice;
+        stringRedisTemplate.opsForZSet()
+                .unionAndStore(firstKey, otherKeys, tempUnionKey, Aggregate.SUM);
+
+        // 4. 为临时Key设置TTL30秒兜底（防止残留）
+        stringRedisTemplate.expire(tempUnionKey, TEMP_KEY_TTL_SECONDS, TimeUnit.SECONDS);
+
+        // 5. 获取所有分类及其窗口总分（合并结果）
+        Set<ZSetOperations.TypedTuple<String>> allScores =
+                stringRedisTemplate.opsForZSet().reverseRangeWithScores(tempUnionKey, 0, -1);
+        log.info("所有分类及其窗口总分：{}", allScores);
+
+        // 9. 无论有没有窗口内是否有数据都要清理临时Key和过期时间片
         cleanUp(tempUnionKey, lastCompleteSlice);
+
+        return allScores;
     }
 
     /**
@@ -172,14 +244,28 @@ public class HotCategoryAutoDetectTask {
      * 访问计数时，确保时间片Key有过期时间
      */
     public void incrementCategoryAccess(String categoryId) {
-        // 获取当前时间片的索引
-        long currentTimeSlice = System.currentTimeMillis() / 1000 / TIME_SLICE_SECONDS;
-        // 获取时间片Key
-        String sliceKey = getTimeSliceKey(currentTimeSlice);
-        // 原子增加分数
-        stringRedisTemplate.opsForZSet().incrementScore(sliceKey, categoryId, 1);
-        // 每次操作后，重新设置过期时间，以保证活跃的时间片不会过期
-        stringRedisTemplate.expire(sliceKey, TIME_SLICE_KEY_TTL_SECONDS, TimeUnit.SECONDS);
+        try {
+            // 获取当前时间片的索引
+            long currentTimeSlice = System.currentTimeMillis() / 1000 / TIME_SLICE_SECONDS;
+            // 获取时间片Key
+            String sliceKey = getTimeSliceKey(currentTimeSlice);
+            // 原子增加分数
+            stringRedisTemplate.opsForZSet().incrementScore(sliceKey, categoryId, 1);
+            // 每次操作后，重新设置过期时间，以保证活跃的时间片不会过期
+            stringRedisTemplate.expire(sliceKey, TIME_SLICE_KEY_TTL_SECONDS, TimeUnit.SECONDS);
+        } catch (RedisSystemException e) {
+            // 预期内的redis故障，降级到本地计数器
+            log.warn("Redis访问计数失败，降级到本地计数器，categoryId:{}", categoryId, e);
+            if (localAccessCounts.size() < MAX_LOCAL_COUNTER_SIZE) {
+                localAccessCounts.computeIfAbsent(categoryId, k -> new LongAdder()).increment();
+            }
+        } catch (Exception e) {
+            // 未预期的异常，可能为代码 bug，记录严重错误并告警，不降级
+            log.error("热点计数发生未预期异常，categoryId:{}，可能为程序缺陷", categoryId, e);
+            // 可以使用比如Micrometer+Prometheus进行监控告警
+            // 也可以直接打印特定关键词的 ERROR 日志，然后由日志采集系统比如Grafana Loki根据关键词触发告警
+            // 注意：此处不重新抛出，保证业务请求不受影响
+        }
     }
 
     /**
