@@ -85,6 +85,12 @@
             <artifactId>commons-lang3</artifactId>
         </dependency>
         <!--    引入aop（切面编程，操纵方法）或者aspectjrt、aspectjweaver    -->
+
+        <!--    fallback降级    -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-webflux</artifactId>
+        </dependency>
     </dependencies>
 
     <build>

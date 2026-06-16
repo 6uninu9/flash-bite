@@ -5,6 +5,21 @@ spring:
   profiles:
     active: dev
   cloud:
+    sentinel:
+      transport:
+        dashboard: localhost:8099 # Sentinel 控制台地址
+        port: 8721 # Sentinel 通信端口
+      eager: true # 懒加载 Sentinel
+      datasource:
+        gw-flow:
+          file:
+            file: classpath:sentinel/gw-flow-rules.json
+            rule-type: gw-flow # 指定规则类型为 Gateway
+        degrade:
+          file:
+            file: classpath:sentinel/degrade-rules.json
+            rule-type: degrade # 降级规则
+
     gateway:
       rate-limit:
         trust-proxy-headers: false   # 无代理环境设为 false，有 Nginx 时改为 true
@@ -18,6 +33,21 @@ spring:
             allowCredentials: true     # 允许发送 Cookie
             maxAge: 3600               # 预检请求的缓存时间 (秒)
       routes:
+        # 秒杀接口专属路由 (精细化限流)
+        - id: seckill-route
+          uri: http://localhost:8081
+          predicates:
+            - Path=/user/coupon/seckill
+          filters:
+            # 核心：接入 Redis 令牌桶限流过滤器
+            - name: RequestRateLimiter
+              args:
+                # 参数 replenishRate=10 + burstCapacity=20 表示：
+                # 允许每秒最多10次请求，但可容忍短时20次突发（例如瞬间点击），超过则返回 HTTP 429。
+                redis-rate-limiter.replenishRate: 10  # 令牌桶每秒填充速率 (QPS)
+                redis-rate-limiter.burstCapacity: 20  # 令牌桶总容量 (最大并发)
+                redis-rate-limiter.requestedTokens: 1 # 每次请求消耗的令牌数
+                key-resolver: "#{@authKeyResolver}"   # 自定义限流维度 (按用户ID)
         # 用户接口路由
         - id: user-service-route
           uri: http://localhost:8081 # 若引入 Nacos/Eureka，可改为 lb://smart-server
@@ -33,20 +63,6 @@ spring:
           uri: http://localhost:8081
           predicates:
             - Path=/doc.html,/swagger-ui/**,/webjars/**,/v3/api-docs/**
-
-        # 秒杀接口专属路由 (精细化限流)
-        - id: seckill-route
-          uri: http://localhost:8081
-          predicates:
-            - Path=/user/coupon/seckill
-          filters:
-            # 核心：接入 Redis 令牌桶限流过滤器
-            - name: RequestRateLimiter
-              args:
-                redis-rate-limiter.replenishRate: 10  # 令牌桶每秒填充速率 (QPS)
-                redis-rate-limiter.burstCapacity: 20  # 令牌桶总容量 (最大并发)
-                redis-rate-limiter.requestedTokens: 1 # 每次请求消耗的令牌数
-                key-resolver: "#{@authKeyResolver}"   # 自定义限流维度 (按用户ID)
   data:
     redis:
       host: ${smart.redis.host}

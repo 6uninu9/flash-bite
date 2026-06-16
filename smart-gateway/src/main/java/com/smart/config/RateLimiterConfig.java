@@ -1,22 +1,22 @@
 package com.smart.config;
 
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.cloud.gateway.filter.ratelimit.KeyResolver;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.context.annotation.Primary;
 import org.springframework.web.server.ServerWebExchange;
 import reactor.core.publisher.Mono;
 
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
-import java.util.Objects;
 import java.util.Optional;
 
 /**
  * 限流维度配置类
  * 定义基于不同维度的 KeyResolver，配合 yml 中的 RequestRateLimiter 使用
  */
+@Slf4j
 @Configuration
 public class RateLimiterConfig {
 

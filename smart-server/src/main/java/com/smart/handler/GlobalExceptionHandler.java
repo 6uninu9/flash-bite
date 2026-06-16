@@ -5,9 +5,11 @@ import com.smart.exception.SystemException;
 import com.smart.result.Result;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.HttpStatus;
 import org.springframework.validation.BindException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
+import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
 /**
@@ -46,6 +48,7 @@ public class GlobalExceptionHandler {
      * @return 统一错误结果
      */
     @ExceptionHandler(SystemException.class)
+    @ResponseStatus(HttpStatus.INTERNAL_SERVER_ERROR) // 显式返回 500，触发网关 Sentinel 异常统计
     public Result<?> handleSystemException(HttpServletRequest request, SystemException ex) {
         // 系统异常记录 ERROR，必须携带上下文参数和完整堆栈 (ex 作为最后一个参数传入)
         log.error("系统异常拦截 | URI: {} | 错误描述: {}", request.getRequestURI(), ex.getMessage(), ex);
@@ -61,6 +64,7 @@ public class GlobalExceptionHandler {
      * @return 统一错误结果
      */
     @ExceptionHandler(MethodArgumentNotValidException.class)
+    @ResponseStatus(HttpStatus.OK) // 显式声明返回 200
     public Result<String> handleValidationException(MethodArgumentNotValidException e) {
         // 提取第一个校验失败的错误信息
         String message = e.getBindingResult().getAllErrors().getFirst().getDefaultMessage();
@@ -75,6 +79,7 @@ public class GlobalExceptionHandler {
      * @return 统一错误结果
      */
     @ExceptionHandler(BindException.class)
+    @ResponseStatus(HttpStatus.OK) // 显式声明返回 200
     public Result<String> handleBindException(BindException e) {
         String message = e.getBindingResult().getAllErrors().getFirst().getDefaultMessage();
         log.warn("参数绑定校验失败 | 提示信息: {}", message);
@@ -90,6 +95,7 @@ public class GlobalExceptionHandler {
      * @return 统一错误结果
      */
     @ExceptionHandler(Exception.class)
+    @ResponseStatus(HttpStatus.INTERNAL_SERVER_ERROR) // 显式返回 500
     public Result<?> handleException(HttpServletRequest request, Exception ex) {
         log.error("未知系统异常拦截 | URI: {} | 异常类型: {}", request.getRequestURI(), ex.getClass().getName(), ex);
         return Result.error("系统内部错误，请联系管理员");

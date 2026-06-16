@@ -22,7 +22,6 @@ import org.redisson.api.RBloomFilter;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.dao.DataAccessException;
-import org.springframework.data.redis.RedisSystemException;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.apache.rocketmq.common.message.Message;
@@ -147,7 +146,7 @@ public class CouponServiceImpl implements CouponService, BloomFilterDataService 
             throw e;
         } catch (DataAccessException e) {
             // 降级策略：Redis 连接异常、超时、宕机时，触发快速失败（熔断），保护 DB
-            throw new BaseException(MessageConstant.ACTIVITY_TOO_BUSY);
+            throw new SystemException(MessageConstant.ACTIVITY_TOO_BUSY, e);
         } catch (Exception e) {
             throw new SystemException(MessageConstant.SYSTEM_BUSY, e);
         }

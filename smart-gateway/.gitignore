@@ -32,3 +32,4 @@ build/
 ### VS Code ###
 .vscode/
 /src/main/resources/application-dev.yml
+/src/main/resources/sentinel/规则说明.txt
