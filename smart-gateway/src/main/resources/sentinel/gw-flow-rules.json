@@ -1,6 +1,6 @@
 [
   {
-    "resource": "seckill-route",
+    "resource": "seckill-post-route",
     "count": 200.0,
     "intervalSec": 1,
     "controlBehavior": 2,

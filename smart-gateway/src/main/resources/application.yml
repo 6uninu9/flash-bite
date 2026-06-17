@@ -14,7 +14,7 @@ spring:
         gw-flow:
           file:
             file: classpath:sentinel/gw-flow-rules.json
-            rule-type: gw-flow # 指定规则类型为 Gateway
+            rule-type: gw-flow # 限流规则
         degrade:
           file:
             file: classpath:sentinel/degrade-rules.json
@@ -34,10 +34,11 @@ spring:
             maxAge: 3600               # 预检请求的缓存时间 (秒)
       routes:
         # 秒杀接口专属路由 (精细化限流)
-        - id: seckill-route
+        - id: seckill-post-route
           uri: http://localhost:8081
           predicates:
             - Path=/user/coupon/seckill
+            - Method=POST
           filters:
             # 核心：接入 Redis 令牌桶限流过滤器
             - name: RequestRateLimiter
@@ -47,7 +48,7 @@ spring:
                 redis-rate-limiter.replenishRate: 10  # 令牌桶每秒填充速率 (QPS)
                 redis-rate-limiter.burstCapacity: 20  # 令牌桶总容量 (最大并发)
                 redis-rate-limiter.requestedTokens: 1 # 每次请求消耗的令牌数
-                key-resolver: "#{@authKeyResolver}"   # 自定义限流维度 (按用户ID)
+                key-resolver: "#{@authKeyResolver}"   # 自定义限流维度
         # 用户接口路由
         - id: user-service-route
           uri: http://localhost:8081 # 若引入 Nacos/Eureka，可改为 lb://smart-server
