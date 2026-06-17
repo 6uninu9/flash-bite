@@ -65,8 +65,8 @@ public class DishServiceImpl implements DishService {
 
     private final RocketMQTemplate rocketMQTemplate;
 
-    @Qualifier("rebuildDishCacheExecutor")
-    private final Executor rebuildDishCacheExecutor;
+    @Qualifier("virtualTaskExecutor")
+    private final Executor virtualTaskExecutor;
 
     private final HotCategoryAutoDetectTask hotCategoryAutoDetectTask;
 
@@ -79,7 +79,7 @@ public class DishServiceImpl implements DishService {
 
     private static final String LOCK_CATEGORY_DISH_REBUILD = "lock:category:dish:rebuild";
 
-    public DishServiceImpl(DishMapper dishMapper, DishFlavorMapper dishFlavorMapper, StringRedisTemplate stringRedisTemplate, RedissonClient redissonClient, RBloomFilter<String> categoryBloomFilter, BloomCacheService bloomCacheService, RocketMQTemplate rocketMQTemplate, Executor rebuildDishCacheExecutor, HotCategoryAutoDetectTask hotCategoryAutoDetectTask, Cache<String, List<DishVO>> hotDishLocalCache) {
+    public DishServiceImpl(DishMapper dishMapper, DishFlavorMapper dishFlavorMapper, StringRedisTemplate stringRedisTemplate, RedissonClient redissonClient, RBloomFilter<String> categoryBloomFilter, BloomCacheService bloomCacheService, RocketMQTemplate rocketMQTemplate, Executor virtualTaskExecutor, HotCategoryAutoDetectTask hotCategoryAutoDetectTask, Cache<String, List<DishVO>> hotDishLocalCache) {
         this.dishMapper = dishMapper;
         this.dishFlavorMapper = dishFlavorMapper;
         this.stringRedisTemplate = stringRedisTemplate;
@@ -87,7 +87,7 @@ public class DishServiceImpl implements DishService {
         this.categoryBloomFilter = categoryBloomFilter;
         this.bloomCacheService = bloomCacheService;
         this.rocketMQTemplate = rocketMQTemplate;
-        this.rebuildDishCacheExecutor = rebuildDishCacheExecutor;
+        this.virtualTaskExecutor = virtualTaskExecutor;
         this.hotCategoryAutoDetectTask = hotCategoryAutoDetectTask;
         this.hotDishLocalCache = hotDishLocalCache;
     }
@@ -484,7 +484,7 @@ public class DishServiceImpl implements DishService {
                     CompletableFuture.runAsync(() -> {
                         redisData.setLastAccessTime(System.currentTimeMillis());
                         stringRedisTemplate.opsForValue().set(redisKey, JSONObject.toJSONString(redisData));
-                    }, rebuildDishCacheExecutor);
+                    }, virtualTaskExecutor);
                     return dishVOList;
                 }
 
@@ -603,7 +603,7 @@ public class DishServiceImpl implements DishService {
                 sendRebuildCompensationMsg(categoryId);
                 throw new RuntimeException(e);
             }
-        }, rebuildDishCacheExecutor);
+        }, virtualTaskExecutor);
     }
 
     /**

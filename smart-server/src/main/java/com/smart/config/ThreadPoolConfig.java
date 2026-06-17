@@ -2,53 +2,22 @@ package com.smart.config;
 
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
+
 import java.util.concurrent.Executor;
-import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.Executors;
 
 @Configuration
 public class ThreadPoolConfig {
 
     /**
-     * 创建一个线程池，用于处理订单相关的任务（实现任务并行化）
-     * @return 线程池对象
+     * 创建基于虚拟线程的 Executor Bean
+     * 不需要设置核心线程数、队列大小等参数来池化，因为虚线程创建与销毁的成本极低，
+     * JVM 可以轻松创建数百万个虚线程，既然资源几乎无限且廉价，就没有必要"限制"数量，也就不需要"池化"来复用
+     * @return 虚拟线程执行器
      */
-    @Bean("orderTaskExecutor")
-    public Executor orderTaskExecutor() {
-        // Spring 增强线程池，支持优雅停机、上下文传递、监控、整合 @Async，底层是 ThreadPoolExecutor
-        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
-        // 核心线程数：IO密集型任务可设置为 CPU核心数 * 2
-        executor.setCorePoolSize(32);
-        // 最大线程数：控制并发峰值，避免压垮下游服务（核心线程数+空闲线程数）
-        executor.setMaxPoolSize(64);
-        // 空闲线程存活时间（60s）：超过这个时间，空闲线程会被回收
-        executor.setKeepAliveSeconds(60);
-        // 队列容量：缓冲等待任务，避免线程频繁创建销毁
-        executor.setQueueCapacity(150);
-        // 线程名前缀：方便日志排查问题
-        executor.setThreadNamePrefix("order-parallel-task-");
-        // 拒绝策略：队列满了后，让主线程自己执行，避免任务丢失
-        executor.setRejectedExecutionHandler(new ThreadPoolExecutor.CallerRunsPolicy());
-        // 初始化
-        executor.initialize();
-        return executor;
-    }
-
-    /**
-     * 创建一个线程池，用于异步重建菜品缓存
-     * 该线程池不是用来“同时跑多个重建”，而是用来承接大量一次性投递的异步任务，保护系统资源、隔离环境影响、控制执行速率。
-     * @return 线程池对象
-     */
-    @Bean("rebuildDishCacheExecutor")
-    public Executor rebuildDishCacheExecutor(){
-        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
-        executor.setCorePoolSize(1); // 最多只有一个异步线程重建缓存
-        executor.setMaxPoolSize(2);
-        executor.setKeepAliveSeconds(60);
-        executor.setQueueCapacity(50); // 超过 50 个待执行的重建任务就直接拒绝，避免内存撑爆
-        executor.setThreadNamePrefix("rebuild-dish-cache-task-");
-        executor.setRejectedExecutionHandler(new ThreadPoolExecutor.DiscardPolicy()); // 拒绝时丢弃，不发异常
-        executor.initialize();
-        return executor;
+    @Bean("virtualTaskExecutor") // 将该方法的返回值注册为 Spring Bean，命名为 "virtualTaskExecutor"，可在其他地方通过 @Qualifier 或 @Resource 注入使用
+    public Executor virtualTaskExecutor() { // 方法返回 java.util.concurrent.Executor 接口类型，提供任务执行能力
+        // 直接返回一个为每个任务创建虚线程的执行器
+        return Executors.newVirtualThreadPerTaskExecutor(); // 调用 JDK 21+ 的工厂方法，创建一个每次提交任务时都会新建一个虚拟线程来执行的 ExecutorService
     }
 }

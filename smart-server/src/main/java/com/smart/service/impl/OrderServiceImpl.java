@@ -11,7 +11,6 @@ import com.smart.entity.*;
 import com.smart.exception.*;
 import com.smart.mapper.*;
 import com.smart.service.OrderService;
-import com.smart.utils.CompletableFutureUtil;
 import com.smart.vo.OrderPaymentVO;
 import com.smart.vo.OrderSubmitVO;
 import com.smart.websocket.WebSocketServer;
@@ -20,7 +19,6 @@ import org.apache.rocketmq.client.producer.SendCallback;
 import org.apache.rocketmq.client.producer.SendResult;
 import org.apache.rocketmq.spring.core.RocketMQTemplate;
 import org.springframework.beans.BeanUtils;
-import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.messaging.Message;
 import org.springframework.messaging.support.MessageBuilder;
 import org.springframework.stereotype.Service;
@@ -32,7 +30,6 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDateTime;
 import java.util.*;
-import java.util.concurrent.*;
 
 @Service
 @Slf4j
@@ -52,12 +49,9 @@ public class OrderServiceImpl implements OrderService {
 
     private final CouponMapper couponMapper;
 
-    @Qualifier("orderTaskExecutor")
-    private final Executor orderTaskExecutor;
-
     private final UserCouponMapper userCouponMapper;
 
-    public OrderServiceImpl(OrderMapper orderMapper, OrderDetailMapper orderDetailMapper, AddressBookMapper addressBookMapper, ShoppingCartMapper shoppingCartMapper, RocketMQTemplate rocketMQTemplate, DishMapper dishMapper, CouponMapper couponMapper, Executor orderTaskExecutor, UserCouponMapper userCouponMapper) {
+    public OrderServiceImpl(OrderMapper orderMapper, OrderDetailMapper orderDetailMapper, AddressBookMapper addressBookMapper, ShoppingCartMapper shoppingCartMapper, RocketMQTemplate rocketMQTemplate, DishMapper dishMapper, CouponMapper couponMapper, UserCouponMapper userCouponMapper) {
         this.orderMapper = orderMapper;
         this.orderDetailMapper = orderDetailMapper;
         this.addressBookMapper = addressBookMapper;
@@ -65,9 +59,9 @@ public class OrderServiceImpl implements OrderService {
         this.rocketMQTemplate = rocketMQTemplate;
         this.dishMapper = dishMapper;
         this.couponMapper = couponMapper;
-        this.orderTaskExecutor = orderTaskExecutor;
         this.userCouponMapper = userCouponMapper;
     }
+
 
     /**
      * 用户下单
@@ -89,15 +83,13 @@ public class OrderServiceImpl implements OrderService {
         // 在用户下单时占用使用的优惠卷 除非用户主动取消订单、用户支付超时系统自动取消订单、商家拒单、执行发生异常将用户持有的优惠卷中的订单id置为空
         // 否则不能使用同一张优惠卷重复下单
         // 但是一般来说用户在选择需要使用的优惠卷时应该看不到有订单使用的优惠卷或者是灰色不可选择的，但是为了以防万一，还是应该进行检查
-        // 异步查询用户使用的优惠卷
-        CompletableFuture<List<UserCoupon>> userCouponFuture = CompletableFutureUtil.supplyAsync(() -> {
-            // 用户优惠卷id集合为空
-            if (userCouponIds == null || userCouponIds.isEmpty()) {
-                // 返回空集合
-                return List.of();
-            }
+        List<UserCoupon> userCoupons;
+        if (userCouponIds == null || userCouponIds.isEmpty()) {
+            // 返回空集合
+            userCoupons = List.of();
+        } else {
             // 获取用户使用的优惠卷
-            List<UserCoupon> userCoupons = userCouponMapper.getByIds(userCouponIds);
+            userCoupons = userCouponMapper.getByIds(userCouponIds);
             if (CollectionUtils.isEmpty(userCoupons)) {
                 throw new OrderBusinessException(MessageConstant.COUPON_NOT_EXIST);
             }
@@ -120,65 +112,54 @@ public class OrderServiceImpl implements OrderService {
                     throw new BaseException(MessageConstant.COUPON_OCCUPIED_BY_OTHER_ORDER);
                 }
             });
-            return userCoupons;
-        }, orderTaskExecutor);
+        }
 
-        // 2. 异步获取地址簿（工具类处理异常）
-        CompletableFuture<AddressBook> addressBookFuture = CompletableFutureUtil.supplyAsync(() -> {
-            // 获取地址簿
-            AddressBook addressBook = addressBookMapper.getById(ordersSubmitDTO.getAddressBookId());
-            // 判断地址簿是否为空
-            if (addressBook == null) {
-                // 空则抛出异常
-                throw new AddressBookBusinessException(MessageConstant.ADDRESS_BOOK_IS_NULL);
+        // 2. 获取地址簿
+        AddressBook addressBook = addressBookMapper.getById(ordersSubmitDTO.getAddressBookId());
+        // 判断地址簿是否为空
+        if (addressBook == null) {
+            // 空则抛出异常
+            throw new AddressBookBusinessException(MessageConstant.ADDRESS_BOOK_IS_NULL);
+        }
+
+        // 3. 查询购物车
+        // 获取购物车数据
+        ShoppingCart shoppingCart = ShoppingCart.builder().userId(userId).build();
+        List<ShoppingCart> shoppingCarts = shoppingCartMapper.list(shoppingCart);
+        // 判断购物车数据是否为空
+        if (shoppingCarts == null || shoppingCarts.isEmpty()) {
+            // 空则抛出异常
+            throw new ShoppingCartBusinessException(MessageConstant.SHOPPING_CART_IS_NULL);
+        }
+        // 遍历购物车数据查询对应的菜品数据
+        shoppingCarts.forEach(shCart -> {
+            // 获取菜品
+            Dish dish = dishMapper.getById(shCart.getDishId());
+            // 判断菜品是否为空或者状态是否为停售
+            if (dish == null || Objects.equals(dish.getStatus(), Dish.DISABLE)) {
+                // 空或者停售则抛出异常 终止下单
+                throw new DishBusinessException(MessageConstant.DISH_IS_NOT_AVAILABLE);
             }
-            return addressBook;
-        }, orderTaskExecutor);
+        });
 
-        // 3. 异步查询购物车
-        CompletableFuture<List<ShoppingCart>> shoppingCartFuture = CompletableFutureUtil.supplyAsync(() -> {
-            // 获取购物车数据
-            ShoppingCart shoppingCart = ShoppingCart.builder().userId(userId).build();
-            List<ShoppingCart> shoppingCarts = shoppingCartMapper.list(shoppingCart);
-            // 判断购物车数据是否为空
-            if (shoppingCarts == null || shoppingCarts.isEmpty()) {
-                // 空则抛出异常
-                throw new ShoppingCartBusinessException(MessageConstant.SHOPPING_CART_IS_NULL);
-            }
-            // 遍历购物车数据查询对应的菜品数据
-            shoppingCarts.forEach(shCart -> {
-                // 获取菜品
-                Dish dish = dishMapper.getById(shCart.getDishId());
-                // 判断菜品是否为空或者状态是否为停售
-                if (dish == null || Objects.equals(dish.getStatus(), Dish.DISABLE)) {
-                    // 空或者停售则抛出异常 终止下单
-                    throw new DishBusinessException(MessageConstant.DISH_IS_NOT_AVAILABLE);
-                }
-            });
-            return shoppingCarts;
-        }, orderTaskExecutor);
-
-        // 4. 异步查询查询优惠卷获取优惠后的支付金额
+        // 4. 查询优惠卷获取优惠后的支付金额
         // 能够选择的优惠卷应该由前端筛选，所以这里只需计算前端传来的优惠卷id对应的优惠金额总和并返回即可
         // 事实上，为了拓展性应该在user_coupon表中添加扣减金额discount_amount、优惠卷名称name、有效时间valid_days这三个字段
         // 因为运营可能会修改优惠卷的金额、名称、有效时间，但是用户领取过的优惠卷是不应该被修改的，不然容易引发投诉
         // 其次计算扣减金额时都要查询优惠卷，高并发下性能有所影响
         // 所以除非规定优惠卷永不修改，才可以使用如下代码，但是如果业务多变、运营强势，那么最好添加
         // 而我没有修改是觉得麻烦 因为一旦修改 又要修改其他功能模块 比如秒杀优惠卷 所以就暂时搁置
-        CompletableFuture<BigDecimal> couponFuture = CompletableFutureUtil.supplyAsync(() -> {
-            // 用户优惠卷id集合为空则返回0
-            if (userCouponIds == null || userCouponIds.isEmpty()) {
-                return BigDecimal.ZERO;
-            }
-
-            // 获取优惠卷id集合，直接复用异步用户优惠卷查询结果
-            List<Long> couponIds = userCouponFuture.join().stream().map(UserCoupon::getCouponId).toList();
+        BigDecimal netPayAmount;
+        if (userCouponIds == null || userCouponIds.isEmpty()) {
+            netPayAmount = BigDecimal.ZERO;
+        } else {
+            // 获取优惠卷id集合，复用用户优惠卷查询结果
+            List<Long> couponIds = userCoupons.stream().map(UserCoupon::getCouponId).toList();
 
             // 根据优惠卷id查询对应的优惠卷
             List<Coupon> coupons = couponMapper.selectBatchById(couponIds);
 
-            // 获取用户支付的原始金额，直接复用异步购物车查询结果
-            List<ShoppingCart> shoppingCarts = shoppingCartFuture.join();
+            // 获取用户支付的原始金额，复用购物车查询结果
             BigDecimal originalAmount = shoppingCarts.stream().map(ShoppingCart::getAmount)
                     .reduce(BigDecimal.ZERO, BigDecimal::add);
 
@@ -201,29 +182,13 @@ public class OrderServiceImpl implements OrderService {
                     .setScale(2, RoundingMode.HALF_UP);// 将计算出的总金额保留 2 位小数 + 四舍五入
 
             // 计算优惠后的支付金额
-            BigDecimal netPayAmount = originalAmount.subtract(couponAmount);
+            netPayAmount = originalAmount.subtract(couponAmount);
             // 如果优惠后金额 ≤ 0
             if (netPayAmount.compareTo(BigDecimal.ZERO) <= 0) {
                 // 优惠金额不能超过订单金额，支付金额最低为0，将支付金额设置为0
                 netPayAmount = BigDecimal.ZERO;
             }
-            return netPayAmount;
-        }, orderTaskExecutor);
-
-        // 5. 等待所有异步任务完成（工具类统一处理异常）
-        CompletableFutureUtil.allOf(addressBookFuture, shoppingCartFuture, couponFuture, userCouponFuture);
-
-        // 6. 获取结果
-            /*
-              工具类中的allOf已经对并行任务的异常进行了统一处理
-              所以执行到这里说明并行任务正常执行完毕，只需要等待完成并获取结果
-              而get()带有checked异常，所以使用get()又要多余使用try-catch块捕获不存在的异常
-              ，join()会抛出unchecked CompletionException，可以不捕获，所以使用join()，可以让代码更简洁
-             */
-        AddressBook addressBook = addressBookFuture.join();
-        List<ShoppingCart> shoppingCarts = shoppingCartFuture.join();
-        BigDecimal netPayAmount = couponFuture.join();
-        List<UserCoupon> userCoupons = userCouponFuture.join();
+        }
 
         // 7. 插入订单数据
         Orders orders = new Orders();
@@ -251,7 +216,7 @@ public class OrderServiceImpl implements OrderService {
 
         // 9. 将用户持有的优惠卷添加对应的订单id，标记为已占用
         // ，但状态不改为已使用（支付后核销优惠卷时才改为已使用）
-        if (userCoupons != null && !userCoupons.isEmpty()) {
+        if (!userCoupons.isEmpty()) {
             // 如果集合不为空，则批量更新
             userCouponMapper.updateOrderIdBathByIds(orders.getId(), userCoupons);
         }
