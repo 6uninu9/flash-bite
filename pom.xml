@@ -16,14 +16,14 @@
     <version>1.0-SNAPSHOT</version>
     <packaging>pom</packaging>
 
-    <name>smart-ordering</name>
+    <name>flash-bite</name>
     <modules>
         <module>smart-server</module>
         <module>smart-common</module>
         <module>smart-pojo</module>
         <module>smart-gateway</module>
     </modules>
-    <url>https://github.com/xxx</url>
+    <url>https://github.com/6uninu9/flash-bite.git</url>
 
     <properties>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
