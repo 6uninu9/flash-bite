@@ -33,6 +33,20 @@ spring:
             allowCredentials: true     # 允许发送 Cookie
             maxAge: 3600               # 预检请求的缓存时间 (秒)
       routes:
+        # 菜品查询路由 (白名单/公共接口)
+        - id: dish-query-route
+          uri: http://localhost:8081
+          predicates:
+            - Path=/user/dish/list
+            - Method=GET
+          filters:
+            - name: RequestRateLimiter
+              args:
+                # 公共接口阈值放宽，主要防恶意爬虫和 DDoS
+                redis-rate-limiter.replenishRate: 20  # 单 IP 每秒允许 20 次
+                redis-rate-limiter.burstCapacity: 50 # 单 IP 最大突发 50 次
+                redis-rate-limiter.requestedTokens: 1
+                key-resolver: "#{@authKeyResolver}"   # 自动走 IP 降级逻辑
         # 秒杀接口专属路由 (精细化限流)
         - id: seckill-post-route
           uri: http://localhost:8081
@@ -49,16 +63,6 @@ spring:
                 redis-rate-limiter.burstCapacity: 20  # 令牌桶总容量 (最大并发)
                 redis-rate-limiter.requestedTokens: 1 # 每次请求消耗的令牌数
                 key-resolver: "#{@authKeyResolver}"   # 自定义限流维度
-        # 用户接口路由
-        - id: user-service-route
-          uri: http://localhost:8081 # 若引入 Nacos/Eureka，可改为 lb://smart-server
-          predicates:
-            - Path=/user/**
-        # 商家管理接口路由
-        - id: admin-service-route
-          uri: http://localhost:8081
-          predicates:
-            - Path=/admin/**
         # swagger-ui路由
         - id: swagger-ui
           uri: http://localhost:8081

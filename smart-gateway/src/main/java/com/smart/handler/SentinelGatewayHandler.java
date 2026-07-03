@@ -19,7 +19,7 @@ import reactor.core.publisher.Mono;
  */
 @Slf4j
 @Configuration
-public class SentinelGatewayConfig {
+public class SentinelGatewayHandler {
 
     /**
      * 初始化方法，在 Bean 创建完成后自动执行

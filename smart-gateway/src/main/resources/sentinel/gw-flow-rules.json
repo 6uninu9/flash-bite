@@ -1,19 +1,7 @@
 [
   {
     "resource": "seckill-post-route",
-    "count": 200.0,
-    "intervalSec": 1,
-    "controlBehavior": 2,
-    "burst": 0,
-    "maxQueueingTimeoutMs": 5000,
-    "paramItem": {
-      "parseStrategy": 0,
-      "fieldName": ""
-    }
-  },
-  {
-    "resource": "smart-server-route",
-    "count": 10.0,
+    "count": 1000.0,
     "intervalSec": 1,
     "controlBehavior": 0,
     "burst": 0,
