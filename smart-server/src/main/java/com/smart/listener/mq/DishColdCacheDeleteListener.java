@@ -30,7 +30,7 @@ public class DishColdCacheDeleteListener implements RocketMQListener<String> {
 
     @Override
     public void onMessage(String id) {
-        
+        // TODO 参数未校验
         String coldKey = CacheKeyConstants.COLD_CATEGORY_KEY_PREFIX + id;
 
         stringRedisTemplate.delete(coldKey);

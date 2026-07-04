@@ -5,6 +5,7 @@ import com.github.benmanes.caffeine.cache.Caffeine;
 import com.google.common.util.concurrent.RateLimiter;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.cloud.gateway.filter.ratelimit.RedisRateLimiter;
+import org.springframework.context.annotation.Primary;
 import org.springframework.stereotype.Component;
 import reactor.core.publisher.Mono;
 
@@ -21,6 +22,7 @@ import java.util.concurrent.atomic.*;
  * 改进点：将简单的失败计数器替换为【分桶滑动窗口】，解决高并发下的统计丢失和边界突刺问题。
  */
 @Slf4j
+@Primary
 @Component
 @SuppressWarnings("UnstableApiUsage") // 抑制@Beta声明警告
 public class CompositeRateLimiter implements org.springframework.cloud.gateway.filter.ratelimit.RateLimiter<RedisRateLimiter.Config> {

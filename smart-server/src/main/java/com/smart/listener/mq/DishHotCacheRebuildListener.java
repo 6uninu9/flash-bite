@@ -60,7 +60,7 @@ public class DishHotCacheRebuildListener implements RocketMQListener<String> {
         // 2. 获取消息体格式
         try {
             categoryId = Long.valueOf(message);
-        } catch (NumberFormatException e) {
+        } catch (NumberFormatException e) { // TODO 异常捕获不完全 有可能是NULL NullPointerException
             log.error("消息体格式错误，非数字类型或空字符串，无法处理。消息：{}", message, e);
             return;
         }

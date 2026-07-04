@@ -39,6 +39,7 @@ public class DishCacheLogicalExpireListener implements RocketMQListener<String> 
     public void onMessage(String id) {
 
         // 1. 消息校验
+        // TODO 参数校验校验不完全 可能会是其他数据
         if (id == null || id.isEmpty()){
             log.warn("菜品缓存逻辑过期设置消息处理失败，id为空");
             return;

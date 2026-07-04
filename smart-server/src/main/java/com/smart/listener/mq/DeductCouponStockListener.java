@@ -52,6 +52,7 @@ public class DeductCouponStockListener implements RocketMQListener<MessageExt> {
     @Override
     public void onMessage(MessageExt messageExt) {
         // 1. 提取优惠券id和用户id
+        // TODO 参数未校验
         String msg = new String(messageExt.getBody());
         String couponId = msg.split("-")[0];
         String userId = msg.split("-")[1];

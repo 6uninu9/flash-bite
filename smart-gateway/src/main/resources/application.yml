@@ -63,6 +63,10 @@ spring:
                 redis-rate-limiter.burstCapacity: 20  # 令牌桶总容量 (最大并发)
                 redis-rate-limiter.requestedTokens: 1 # 每次请求消耗的令牌数
                 key-resolver: "#{@authKeyResolver}"   # 自定义限流维度
+        - id: admin-route
+          uri: http://localhost:8081
+          predicates:
+              - Path=/admin/**
         # swagger-ui路由
         - id: swagger-ui
           uri: http://localhost:8081

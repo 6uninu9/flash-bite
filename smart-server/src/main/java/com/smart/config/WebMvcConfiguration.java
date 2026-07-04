@@ -45,8 +45,8 @@ public class WebMvcConfiguration implements WebMvcConfigurer {
         log.info("生成接口文档");
         return new OpenAPI()
                 .info(new Info()
-                        .title("云穹外卖项目API文档")
+                        .title("闪食项目API文档")
                         .version("2.0")
-                        .description("云穹外卖项目后端API接口文档"));
+                        .description("闪食项目后端API接口文档"));
     }
 }

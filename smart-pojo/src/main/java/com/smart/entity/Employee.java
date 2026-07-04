@@ -34,6 +34,13 @@ public class Employee implements Serializable {
 
     private Integer status;
 
+    private Long merchantId;
+
+    /**
+     * 用户角色：BOSS-老板，EMPLOYEE-员工
+     */
+    private String role;
+
     //@JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
     private LocalDateTime createTime;
 

@@ -7,6 +7,7 @@ import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
 
+import java.time.LocalDateTime;
 import java.util.List;
 
 @Mapper
@@ -14,9 +15,10 @@ public interface UserCouponMapper {
 
     /**
      * 批量更新优惠券状态
+     *
      * @param couponIds 优惠券id列表
-     * @param userId 用户id
-     * @param status 状态
+     * @param userId    用户id
+     * @param status    状态
      */
     void updateBathStatus(List<Long> couponIds, Long userId, int status);
 
@@ -26,9 +28,9 @@ public interface UserCouponMapper {
      * @param userCoupon 用户优惠券
      */
     @Insert("INSERT IGNORE INTO user_coupon " +
-            "(user_id, coupon_id, get_time, status, create_time) " +
+            "(user_id, coupon_id, coupon_name, coupon_type, threshold_amount, discount_amount, get_time, expire_time, is_seckill, status, create_time) " +
             "VALUES " +
-            "(#{userId}, #{couponId}, now(), #{status}, now())")
+            "(#{userId}, #{couponId}, #{couponName}, #{couponType}, #{thresholdAmount}, #{discountAmount}, #{getTime}, #{expireTime}, #{isSeckill}, #{status}, NOW())")
     @Options(useGeneratedKeys = true, keyColumn = "id", keyProperty = "id")
     void insert(UserCoupon userCoupon);
 
@@ -75,6 +77,7 @@ public interface UserCouponMapper {
 
     /**
      * 根据id查询用户优惠券
+     *
      * @param userCouponId 用户优惠券id
      * @return 用户优惠券
      */
@@ -84,9 +87,25 @@ public interface UserCouponMapper {
     /**
      * 修改用户优惠券状态
      * 使用乐观锁status = 0，避免在修改时用户刚好使用优惠券，状态被覆盖的问题
+     *
      * @param userCouponId 用户优惠券id
-     * @param status 状态
+     * @param status       状态
      */
     @Update("update user_coupon set status = #{status} where id = #{userCouponId} and status = 0")
     void updateStatusById(Long userCouponId, Integer status);
+
+    /**
+     * 根据用户id和开始时间查询用户优惠券
+     *
+     * @param userId    用户id
+     * @param startTime 开始时间
+     * @return 用户优惠券列表
+     */
+    @Select("SELECT " +
+            "  id, user_id, coupon_id, coupon_name, coupon_type, threshold_amount, discount_amount, " +
+            "  get_time, expire_time, is_seckill, use_time, order_id, status, create_time " +
+            "FROM user_coupon " +
+            "WHERE user_id = #{userId} AND get_time >= #{startTime} " +
+            "ORDER BY get_time DESC")
+    List<UserCoupon> listByUserAndTime(Long userId, LocalDateTime startTime);
 }

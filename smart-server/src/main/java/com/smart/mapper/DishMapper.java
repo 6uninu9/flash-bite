@@ -1,13 +1,11 @@
 package com.smart.mapper;
 
-import com.github.pagehelper.Page;
 import com.smart.annotation.AutoFill;
 import com.smart.dto.DishPageQueryDTO;
 import com.smart.entity.Dish;
 import com.smart.enumeration.OperationType;
 import com.smart.vo.DishVO;
 import org.apache.ibatis.annotations.Mapper;
-import org.apache.ibatis.annotations.Options;
 import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.annotations.Update;
 

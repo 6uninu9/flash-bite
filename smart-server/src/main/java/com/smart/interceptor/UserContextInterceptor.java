@@ -32,6 +32,7 @@ public class UserContextInterceptor implements HandlerInterceptor {
             "/user/shop/status",
             "/user/category/list",
             "/user/dish/list",
+            "/admin/employee/login",
             "/swagger-ui/**",
             "/doc.html",
             "/webjars/**",

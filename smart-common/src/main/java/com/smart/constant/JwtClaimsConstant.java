@@ -14,15 +14,11 @@ public class JwtClaimsConstant {
      */
     public static final String USER_ID = "userId";
     /**
-     * JWT 中表示电话号码的声明键。
+     * JWT 中表示商户 ID 的声明键。
      */
-    public static final String PHONE = "phone";
+    public static final String MERCHANT_ID = "merchantId";
     /**
-     * JWT 中表示用户名的声明键。
+     * JWT 中表示角色的声明键。
      */
-    public static final String USERNAME = "username";
-    /**
-     * JWT 中表示姓名的声明键。
-     */
-    public static final String NAME = "name";
+    public static final String ROLE = "role";
 }

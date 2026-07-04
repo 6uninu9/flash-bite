@@ -29,6 +29,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.nio.charset.StandardCharsets;
+import java.sql.Timestamp;
+import java.time.LocalDateTime;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
@@ -187,30 +189,38 @@ public class CouponServiceImpl implements CouponService, BloomFilterDataService 
         couponMapper.deductCouponStockById(couponId, coupon.getSurplusStock() - 1);
 
         // 3. 插入用户优惠券记录
+        LocalDateTime getTime = LocalDateTime.now();
+        LocalDateTime expireTime = getTime.plusDays(coupon.getValidDays());
+
         UserCoupon userCoupon = UserCoupon.builder()
                 .userId(userId)
                 .couponId(couponId)
+                .couponName(coupon.getCouponName())
+                .couponType(coupon.getCouponType())
+                .thresholdAmount(coupon.getThresholdAmount())
+                .discountAmount(coupon.getDiscountAmount())
+                .isSeckill(coupon.getIsSeckill())
+                .getTime(getTime)
+                .expireTime(expireTime)
                 .status(UserCoupon.STATUS_UNUSED)
                 .build();
         userCouponMapper.insert(userCoupon);
 
-        // 4. 获取优惠卷的有效天数
-        // 事实上，这个过期时间应该也在用户优惠卷中开一个字段，
-        // 因为优惠卷表中的过期时间终归是一个模板是可以更改的，
-        // 不过，只要规定优惠卷不可以更改即可，但是只是妥协，饮鸩止渴
-        Integer validDays = coupon.getValidDays(); // 有效天数
-
-        // 5. 创建自动修改过期优惠卷状态的延时消息
+        // 4. 创建自动修改过期优惠卷状态的延时消息
         String msg = userCoupon.getId().toString();
         Message rocketMsg = new Message(
                 "couponTopic",
                 msg.getBytes(StandardCharsets.UTF_8)
         );
         // 开源版 RocketMQ 5.X的自定义延时时间默认最大为3天，可以通过修改配置文件修改时间
-        rocketMsg.setDeliverTimeMs(validDays * 24 * 60 * 60 * 1000L); // 延时毫秒数
-        rocketMsg.setDeliverTimeMs(1000L); // 测试一秒
+        // 正式环境：直接使用过期时间戳作为投递时间，逻辑更精准直观
+        long deliverTimestamp = Timestamp.valueOf(expireTime).getTime();
+        rocketMsg.setDeliverTimeMs(deliverTimestamp);
 
-        // 6. 发送延时消息
+        // 测试环境：1秒后触发，注释正式环境配置后启用
+        // rocketMsg.setDeliverTimeMs(System.currentTimeMillis() + 1000L);
+
+        // 5. 发送延时消息
         try {
             rocketMQTemplate.getProducer().send(rocketMsg, new SendCallback() {
                 @Override

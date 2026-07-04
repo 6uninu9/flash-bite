@@ -47,6 +47,7 @@ public class CancelOrderListener implements RocketMQListener<MessageExt> {
     @Override
     public void onMessage(MessageExt messageExt) {
         // 1. 提取订单编号和订单id
+        // TODO 参数未校验
         String msg = new String(messageExt.getBody());
         String number = msg.split("-")[0]; // 订单编号
         String orderId = msg.split("-")[1]; // 订单id

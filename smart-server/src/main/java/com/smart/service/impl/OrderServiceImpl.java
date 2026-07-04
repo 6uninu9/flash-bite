@@ -47,18 +47,15 @@ public class OrderServiceImpl implements OrderService {
 
     private final DishMapper dishMapper;
 
-    private final CouponMapper couponMapper;
-
     private final UserCouponMapper userCouponMapper;
 
-    public OrderServiceImpl(OrderMapper orderMapper, OrderDetailMapper orderDetailMapper, AddressBookMapper addressBookMapper, ShoppingCartMapper shoppingCartMapper, RocketMQTemplate rocketMQTemplate, DishMapper dishMapper, CouponMapper couponMapper, UserCouponMapper userCouponMapper) {
+    public OrderServiceImpl(OrderMapper orderMapper, OrderDetailMapper orderDetailMapper, AddressBookMapper addressBookMapper, ShoppingCartMapper shoppingCartMapper, RocketMQTemplate rocketMQTemplate, DishMapper dishMapper, UserCouponMapper userCouponMapper) {
         this.orderMapper = orderMapper;
         this.orderDetailMapper = orderDetailMapper;
         this.addressBookMapper = addressBookMapper;
         this.shoppingCartMapper = shoppingCartMapper;
         this.rocketMQTemplate = rocketMQTemplate;
         this.dishMapper = dishMapper;
-        this.couponMapper = couponMapper;
         this.userCouponMapper = userCouponMapper;
     }
 
@@ -153,20 +150,14 @@ public class OrderServiceImpl implements OrderService {
         if (userCouponIds == null || userCouponIds.isEmpty()) {
             netPayAmount = BigDecimal.ZERO;
         } else {
-            // 获取优惠卷id集合，复用用户优惠卷查询结果
-            List<Long> couponIds = userCoupons.stream().map(UserCoupon::getCouponId).toList();
-
-            // 根据优惠卷id查询对应的优惠卷
-            List<Coupon> coupons = couponMapper.selectBatchById(couponIds);
-
             // 获取用户支付的原始金额，复用购物车查询结果
             BigDecimal originalAmount = shoppingCarts.stream().map(ShoppingCart::getAmount)
                     .reduce(BigDecimal.ZERO, BigDecimal::add);
 
             // 判断优惠卷是否满足使用条件
-            for (Coupon coupon : coupons) {
-                if (coupon == null) continue;
-                BigDecimal minPrice = coupon.getThresholdAmount(); // 优惠券满减门槛：满XX可用
+            for (UserCoupon userCoupon : userCoupons) {
+                if (userCoupon == null) continue;
+                BigDecimal minPrice = userCoupon.getThresholdAmount(); // 优惠券满减门槛：满XX可用
                 if (originalAmount.compareTo(minPrice) < 0) {
                     // 构建异常信息
                     String message = String.format(MessageConstant.COUPON_MIN_PRICE_NOT_MET, minPrice);
@@ -175,9 +166,9 @@ public class OrderServiceImpl implements OrderService {
             }
 
             // 获取优惠卷集合中的优惠金额
-            BigDecimal couponAmount = coupons.stream() // 把优惠券列表转换成 Stream 流
+            BigDecimal couponAmount = userCoupons.stream() // 把优惠券列表转换成 Stream 流
                     .filter(Objects::nonNull) // 过滤出不为空的对象
-                    .map(Coupon::getDiscountAmount) // 类型转换，把流里的每一个优惠券对象，转换成对应的优惠金额
+                    .map(UserCoupon::getDiscountAmount) // 类型转换，把流里的每一个用户优惠券对象，转换成对应的优惠金额
                     .reduce(BigDecimal.ZERO, BigDecimal::add) // 聚合计算，把流里的多个数据合并成一个数据，即将BigDecimal.ZERO与其他优惠金额进行相加
                     .setScale(2, RoundingMode.HALF_UP);// 将计算出的总金额保留 2 位小数 + 四舍五入
 
@@ -222,13 +213,12 @@ public class OrderServiceImpl implements OrderService {
         }
 
         // 10. 扣减库存
-        // 将扣减库存提取到主线程，因为异步线程脱离事务，发生异常无法回滚
         // 在下单时就扣减库存 主要是因为:
         // 用户选完一堆菜品，填完地址，跳到支付页，却发现菜品已售空，用户体验极差，极易流失。
         // 除此之外 这里的扣减库存只是预扣减(用户超时未支付后释放库存) 后厨拿到单子进行出餐是在用户支付后
         shoppingCarts.forEach(cart -> {
             // 扣减库存并获取扣减后影响的行数用于判断是否扣减成功
-            // 使用数据库行锁+乐观锁，避免并发问题和超卖
+            // 使用数据库隐式行锁+条件判断，避免并发问题和超卖
             int rows = dishMapper.deductStockByDishId(cart.getDishId(), cart.getNumber());
             if (rows == 0) {
                 throw new BaseException(cart.getName() + "-" + MessageConstant.DISH_SOLD_OUT);

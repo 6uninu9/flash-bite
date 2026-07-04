@@ -31,7 +31,4 @@ public class DishController {
         List<DishVO> dishVOList = dishService.getDishListByCategoryId(categoryId);
         return Result.success(dishVOList);
     }
-
-    // 根据菜品id查询菜品详情 将菜品数据缓存进redis 并使用布隆过滤器存储对应的菜品id 避免缓存穿透
-    // 根据菜品名称模糊查询 使用Elasticsearch或OpenSearch存储数据（搜索功能）
 }
