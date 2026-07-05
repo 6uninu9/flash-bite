@@ -28,15 +28,21 @@ public class UserContextInterceptor implements HandlerInterceptor {
      * 匿名访问路径白名单（需与网关白名单保持一致，或外置到配置文件）
      */
     private static final List<String> ANON_PATH_PATTERNS = List.of(
+            // 用户端匿名路径
             "/user/user/login",
             "/user/shop/status",
             "/user/category/list",
             "/user/dish/list",
+            "/user/coupon/seckill",
+            // 商家管理端匿名路径
             "/admin/employee/login",
+            // Swagger / OpenAPI 相关
             "/swagger-ui/**",
+            "/swagger-ui.html",
             "/doc.html",
             "/webjars/**",
-            "/v3/api-docs/**"
+            "/v3/api-docs/**",
+            "/swagger-resources/**"
     );
 
     private final AntPathMatcher pathMatcher = new AntPathMatcher();

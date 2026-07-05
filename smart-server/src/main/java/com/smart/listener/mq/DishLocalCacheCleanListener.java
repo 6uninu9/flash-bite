@@ -32,7 +32,12 @@ public class DishLocalCacheCleanListener implements RocketMQListener<Long> {
 
     @Override
     public void onMessage(Long categoryId) {
-        // TODO 参数未校验
+
+        if (categoryId == null){
+            log.warn("接收到L1本地缓存清理广播，categoryId为空");
+            return;
+        }
+
         log.info("接收到L1本地缓存清理广播，清理 categoryId:{}", categoryId);
         hotDishLocalCache.invalidate(String.valueOf(categoryId));
     }

@@ -1,5 +1,9 @@
 package com.smart.service;
 
+import com.smart.entity.Coupon;
+
+import java.util.List;
+
 public interface CouponService {
 
     /**
@@ -14,4 +18,10 @@ public interface CouponService {
      * @param userId 用户ID
      */
     void deductCouponStockAndAddUserCoupon(Long couponId, Long userId);
+
+    /**
+     * 获取秒杀优惠券列表
+     * @return 秒杀优惠券列表
+     */
+    List<Coupon> listSeckill();
 }

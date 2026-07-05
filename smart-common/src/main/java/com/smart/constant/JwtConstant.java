@@ -7,8 +7,6 @@ public class JwtConstant {
 
     public static final String TOKEN_EXPIRED = "JWT 已过期";
 
-    public static final String TOKEN_INVALID = "JWT 无效";
-
     public static final String TOKEN_MALFORMED = "JWT 格式错误";
 
     public static final String TOKEN_UNSUPPORTED = "不支持的 JWT";

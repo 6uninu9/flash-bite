@@ -45,7 +45,11 @@ public interface CouponMapper {
     @Update("update coupon set surplus_stock = #{newSurplusStock} where id = #{couponId}")
     void deductCouponStockById(Long couponId, int newSurplusStock);
 
-
+    /**
+     * 根据条件查询优惠券列表
+     * @param coupon 优惠券
+     * @return 优惠券集合
+     */
     List<Coupon> list(Coupon coupon);
 
     /**
@@ -54,4 +58,14 @@ public interface CouponMapper {
      * @return 优惠券集合
      */
     List<Coupon> selectBatchById(List<Long> couponIds);
+
+    /**
+     * 查询秒杀优惠券列表
+     * @return 优惠券集合
+     */
+    @Select("SELECT id, coupon_name, coupon_type, threshold_amount, discount_amount, " +
+            "total_stock, surplus_stock, start_time, end_time, valid_days, " +
+            "status, create_user, update_user, create_time, update_time, is_seckill " +
+            "FROM coupon WHERE is_seckill = 1 AND status = 1 ORDER BY create_time DESC")
+    List<Coupon> listSeckillCoupons();
 }

@@ -9,6 +9,6 @@ public class JwtException extends BaseException {
     }
 
     public JwtException(String msg) {
-        super(msg);
+        super(401, msg);
     }
 }

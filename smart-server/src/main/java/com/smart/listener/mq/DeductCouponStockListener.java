@@ -12,6 +12,7 @@ import org.redisson.api.RedissonClient;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Component;
 
+import java.nio.charset.StandardCharsets;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -52,10 +53,31 @@ public class DeductCouponStockListener implements RocketMQListener<MessageExt> {
     @Override
     public void onMessage(MessageExt messageExt) {
         // 1. 提取优惠券id和用户id
-        // TODO 参数未校验
-        String msg = new String(messageExt.getBody());
-        String couponId = msg.split("-")[0];
-        String userId = msg.split("-")[1];
+        String msg = null;
+        Long couponId;
+        Long userId;
+
+        try {
+            byte[] body = messageExt.getBody();
+            if (body == null || body.length == 0) {
+                log.error("消息体为空，无法解析。");
+                return;
+            }
+            msg = new String(body, StandardCharsets.UTF_8);
+
+            String[] parts = msg.split("-", 2);
+            if (parts.length < 2) {
+                log.error("消息格式错误，缺少分隔符'-'。原始消息：{}", msg);
+                return;
+            }
+            couponId = Long.parseLong(parts[0].trim());
+            userId = Long.valueOf(parts[1].trim());
+
+        } catch (NumberFormatException e) {
+            log.error("消息中ID格式错误，解析失败。原始消息：{}", msg, e);
+            return;
+        }
+
 
         log.info("收到优惠券库存扣减的异步消息：{}", msg);
 
@@ -82,7 +104,7 @@ public class DeductCouponStockListener implements RocketMQListener<MessageExt> {
             }
 
             // 7. 扣减优惠卷库存 完成异步落库 和 插入用户的优惠卷记录
-            couponService.deductCouponStockAndAddUserCoupon(Long.valueOf(couponId), Long.valueOf(userId));
+            couponService.deductCouponStockAndAddUserCoupon(couponId, userId);
 
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();

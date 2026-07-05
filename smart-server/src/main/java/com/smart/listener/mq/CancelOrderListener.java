@@ -13,6 +13,7 @@ import org.redisson.api.RedissonClient;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Component;
 
+import java.nio.charset.StandardCharsets;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -47,10 +48,30 @@ public class CancelOrderListener implements RocketMQListener<MessageExt> {
     @Override
     public void onMessage(MessageExt messageExt) {
         // 1. 提取订单编号和订单id
-        // TODO 参数未校验
-        String msg = new String(messageExt.getBody());
-        String number = msg.split("-")[0]; // 订单编号
-        String orderId = msg.split("-")[1]; // 订单id
+        String msg = null;
+        long number;
+        Long orderId;
+
+        try {
+            byte[] body = messageExt.getBody();
+            if (body == null || body.length == 0) {
+                log.error("消息体为空，无法解析。");
+                return;
+            }
+            msg = new String(body, StandardCharsets.UTF_8);
+
+            String[] parts = msg.split("-", 2);
+            if (parts.length < 2) {
+                log.error("消息格式错误，缺少分隔符'-'。原始消息：{}", msg);
+                return;
+            }
+            number = Long.parseLong(parts[0].trim());
+            orderId = Long.valueOf(parts[1].trim());
+
+        } catch (NumberFormatException e) {
+            log.error("消息中ID格式错误，解析失败。原始消息：{}", msg, e);
+            return;
+        }
 
         log.info("收到取消订单的延迟消息：{}", msg);
 
@@ -65,7 +86,7 @@ public class CancelOrderListener implements RocketMQListener<MessageExt> {
         }
 
         // 3. 获取订单信息，判断订单是否支持取消
-        Orders orders = orderService.getOrderById(Long.valueOf(orderId));
+        Orders orders = orderService.getOrderById(orderId);
 
         // 3.1. 订单不存在
         if (orders == null) {

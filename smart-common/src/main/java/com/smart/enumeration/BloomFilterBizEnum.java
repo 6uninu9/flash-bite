@@ -2,8 +2,6 @@ package com.smart.enumeration;
 
 import lombok.Getter;
 
-import java.util.List;
-
 /**
  * 枚举类：布隆过滤器业务类型
  */
@@ -37,11 +35,6 @@ public enum BloomFilterBizEnum {
     private final String oldKey;       // 旧布隆key
     private final String newKey;       // 临时key
     private final String serviceName;
-
-    @FunctionalInterface // 函数式接口
-    public interface DataSupplier {
-        List<String> get(Object service);
-    }
 
     BloomFilterBizEnum(String oldKey, String newKey, String serviceName) {
         this.oldKey = oldKey;

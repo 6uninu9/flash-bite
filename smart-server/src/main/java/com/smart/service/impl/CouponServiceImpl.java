@@ -215,10 +215,10 @@ public class CouponServiceImpl implements CouponService, BloomFilterDataService 
         // 开源版 RocketMQ 5.X的自定义延时时间默认最大为3天，可以通过修改配置文件修改时间
         // 正式环境：直接使用过期时间戳作为投递时间，逻辑更精准直观
         long deliverTimestamp = Timestamp.valueOf(expireTime).getTime();
-        rocketMsg.setDeliverTimeMs(deliverTimestamp);
+//        rocketMsg.setDeliverTimeMs(deliverTimestamp);
 
         // 测试环境：1秒后触发，注释正式环境配置后启用
-        // rocketMsg.setDeliverTimeMs(System.currentTimeMillis() + 1000L);
+         rocketMsg.setDeliverTimeMs(System.currentTimeMillis() + 1000L);
 
         // 5. 发送延时消息
         try {
@@ -238,6 +238,21 @@ public class CouponServiceImpl implements CouponService, BloomFilterDataService 
         }
     }
 
+    /**
+     * 获取秒杀优惠券列表
+     *
+     * @return 秒杀优惠券列表
+     */
+    @Override
+    public List<Coupon> listSeckill() {
+        return couponMapper.listSeckillCoupons();
+    }
+
+    /**
+     * 获取所有优惠券ID
+     *
+     * @return 所有优惠券ID
+     */
     @Override
     public List<String> getKey() {
         return couponMapper.listAllIds();

@@ -15,7 +15,6 @@ import org.apache.http.entity.ContentType;
 import org.apache.http.entity.StringEntity;
 import org.apache.http.impl.client.CloseableHttpClient;
 import org.apache.http.util.EntityUtils;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import java.io.File;
@@ -25,10 +24,7 @@ import java.math.BigDecimal;
 import java.security.PrivateKey;
 import java.security.Signature;
 import java.security.cert.X509Certificate;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Base64;
-import java.util.List;
+import java.util.*;
 
 /**
  * 微信支付工具类
@@ -52,7 +48,7 @@ public class WeChatPayUtil {
     /**
      * 获取调用微信接口的客户端工具对象
      *
-     * @return
+     * @return CloseableHttpClient
      */
     private CloseableHttpClient getClient() {
         PrivateKey merchantPrivateKey = null;
@@ -61,16 +57,15 @@ public class WeChatPayUtil {
             merchantPrivateKey = PemUtil.loadPrivateKey(new FileInputStream(new File(weChatProperties.getPrivateKeyFilePath())));
             //加载平台证书文件
             X509Certificate x509Certificate = PemUtil.loadCertificate(new FileInputStream(new File(weChatProperties.getWeChatPayCertFilePath())));
-            //wechatPayCertificates微信支付平台证书列表。你也可以使用后面章节提到的“定时更新平台证书功能”，而不需要关心平台证书的来龙去脉
-            List<X509Certificate> wechatPayCertificates = Arrays.asList(x509Certificate);
+            //wechatPayCertificates微信支付平台证书列表。也可以使用后面章节提到的“定时更新平台证书功能”，而不需要关心平台证书的来龙去脉
+            List<X509Certificate> wechatPayCertificates = Collections.singletonList(x509Certificate);
 
             WechatPayHttpClientBuilder builder = WechatPayHttpClientBuilder.create()
                     .withMerchant(weChatProperties.getMchid(), weChatProperties.getMchSerialNo(), merchantPrivateKey)
                     .withWechatPay(wechatPayCertificates);
 
             // 通过WechatPayHttpClientBuilder构造的HttpClient，会自动的处理签名和验签
-            CloseableHttpClient httpClient = builder.build();
-            return httpClient;
+            return builder.build();
         } catch (FileNotFoundException e) {
             log.error(e.getMessage());
             return null;
@@ -80,9 +75,9 @@ public class WeChatPayUtil {
     /**
      * 发送post方式请求
      *
-     * @param url
-     * @param body
-     * @return
+     * @param url 接口地址
+     * @param body 请求体
+     * @return String
      */
     private String post(String url, String body) throws Exception {
         CloseableHttpClient httpClient = getClient();
@@ -111,8 +106,8 @@ public class WeChatPayUtil {
     /**
      * 发送get方式请求
      *
-     * @param url
-     * @return
+     * @param url 接口地址
+     * @return String
      */
     private String get(String url) throws Exception {
         CloseableHttpClient httpClient = getClient();
@@ -124,8 +119,7 @@ public class WeChatPayUtil {
 
         CloseableHttpResponse response = httpClient.execute(httpGet);
         try {
-            String bodyAsString = EntityUtils.toString(response.getEntity());
-            return bodyAsString;
+            return EntityUtils.toString(response.getEntity());
         } finally {
             httpClient.close();
             response.close();
@@ -139,7 +133,7 @@ public class WeChatPayUtil {
      * @param total       总金额
      * @param description 商品描述
      * @param openid      微信用户的openid
-     * @return
+     * @return String
      */
     private String jsapi(String orderNum, BigDecimal total, String description, String openid) throws Exception {
         JSONObject jsonObject = new JSONObject();
@@ -171,7 +165,7 @@ public class WeChatPayUtil {
      * @param total       金额，单位 元
      * @param description 商品描述
      * @param openid      微信用户的openid
-     * @return
+     * @return JSONObject
      */
     public JSONObject pay(String orderNum, BigDecimal total, String description, String openid) throws Exception {
         //统一下单，生成预支付交易单
@@ -222,7 +216,7 @@ public class WeChatPayUtil {
      * @param outRefundNo   商户退款单号
      * @param refund        退款金额
      * @param total         原订单金额
-     * @return
+     * @return String
      */
     public String refund(String outTradeNo, String outRefundNo, BigDecimal refund, BigDecimal total) throws Exception {
         JSONObject jsonObject = new JSONObject();

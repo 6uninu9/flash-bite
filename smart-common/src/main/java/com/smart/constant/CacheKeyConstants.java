@@ -6,19 +6,9 @@ package com.smart.constant;
 public class CacheKeyConstants {
 
     /**
-     * 菜品缓存前缀
-     */
-    public static final String DISH_CACHE_KEY_PREFIX = "dish_";
-
-    /**
      * 统计categoryId访问量的Key
      */
     public static final String CATEGORY_QPS_STATS_KEY = "stats:category:qps";
-
-    /**
-     * 标记热点分类的Key
-     */
-    public static final String HOT_CATEGORY_IDS_KEY = "hot:category:ids";
 
     /**
      * 冷分类缓存的Key前缀
@@ -39,11 +29,6 @@ public class CacheKeyConstants {
      * 秒杀优惠券领取去重Key前缀
      */
     public static final String SECKILL_COUPON_TAKE_DEDUP_KEY_PREFIX = "dedup:seckill:coupon:";
-
-    /**
-     * 优惠券占用Key前缀
-     */
-    public static final String LOCK_COUPON_OCCUPY_KEY = "occupy:coupon:";
 
     /**
      * 秒杀优惠券状态Key前缀

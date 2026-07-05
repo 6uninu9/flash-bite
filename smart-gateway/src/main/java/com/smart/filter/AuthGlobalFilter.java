@@ -39,18 +39,26 @@ public class AuthGlobalFilter implements GlobalFilter, Ordered {
             "/user/category/list",
             "/user/dish/list",
             "/swagger-ui/**",
+            "/swagger-ui.html",
             "/doc.html",
             "/webjars/**",
-            "/v3/api-docs/**"
+            "/v3/api-docs/**",
+            "/swagger-resources/**",
+            "/error",
+            "/favicon.ico"
     );
 
     // 管理端白名单路径
     private static final List<String> ADMIN_WHITE_LIST = List.of(
             "/admin/employee/login",
             "/swagger-ui/**",
+            "/swagger-ui.html",
             "/doc.html",
             "/webjars/**",
-            "/v3/api-docs/**"
+            "/v3/api-docs/**",
+            "/swagger-resources/**",
+            "/error",
+            "/favicon.ico"
     );
 
     // 路径前缀约定
@@ -61,7 +69,6 @@ public class AuthGlobalFilter implements GlobalFilter, Ordered {
     public AuthGlobalFilter(JwtProperties jwtProperties) {
         this.jwtProperties = jwtProperties;
     }
-
 
     @Override
     public Mono<Void> filter(ServerWebExchange exchange, GatewayFilterChain chain) {

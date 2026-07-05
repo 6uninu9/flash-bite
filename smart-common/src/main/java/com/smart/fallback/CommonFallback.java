@@ -1,6 +1,5 @@
 package com.smart.fallback;
 
-import com.smart.result.Result;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.web.reactive.function.server.ServerResponse;
@@ -17,6 +16,17 @@ public class CommonFallback {
     public static Mono<ServerResponse> gatewayBlockHandler() {
         return ServerResponse.status(HttpStatus.TOO_MANY_REQUESTS)
                 .contentType(MediaType.APPLICATION_JSON)
-                .bodyValue("{\"code\":429,\"msg\":\"系统繁忙，请稍后再试\",\"data\":null}");
+                .bodyValue("{\"code\":500,\"msg\":\"系统繁忙，请稍后再试\",\"data\":null}");
     }
+
+    /**
+     * 通用 Block 响应，支持自定义 code 和 msg
+     */
+    public static Mono<ServerResponse> gatewayBlockHandler(int code, String msg) {
+        String json = String.format("{\"code\":%d,\"msg\":\"%s\",\"data\":null}", code, msg);
+        return ServerResponse.status(HttpStatus.TOO_MANY_REQUESTS)
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(json);
+    }
+
 }

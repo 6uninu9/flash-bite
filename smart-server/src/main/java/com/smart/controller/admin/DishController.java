@@ -8,6 +8,7 @@ import com.smart.service.DishService;
 import com.smart.vo.DishVO;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.constraints.NotNull;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.poi.ss.formula.functions.T;
 import org.springframework.web.bind.annotation.*;
@@ -108,7 +109,7 @@ public class DishController {
     @Operation(
             summary = "根据id查询菜品"
     )
-    public Result<DishVO> getById(@PathVariable Long id) {
+    public Result<DishVO> getById(@NotNull @PathVariable Long id) {
         log.info("查询菜品id：{}", id);
 
         DishVO dishVO = dishService.getByIdWithFlavor(id);

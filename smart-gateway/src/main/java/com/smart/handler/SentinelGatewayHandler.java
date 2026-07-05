@@ -3,8 +3,11 @@ package com.smart.handler;
 import com.alibaba.csp.sentinel.adapter.gateway.sc.callback.BlockRequestHandler;
 import com.alibaba.csp.sentinel.adapter.gateway.sc.callback.GatewayCallbackManager;
 import com.smart.fallback.CommonFallback;
+import com.smart.fallback.FallbackRegistry;
 import jakarta.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.cloud.gateway.route.Route;
+import org.springframework.cloud.gateway.support.ServerWebExchangeUtils;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.web.reactive.function.server.ServerResponse;
 import org.springframework.web.server.ServerWebExchange;
@@ -20,6 +23,12 @@ import reactor.core.publisher.Mono;
 @Slf4j
 @Configuration
 public class SentinelGatewayHandler {
+
+    private final FallbackRegistry fallbackRegistry;
+
+    public SentinelGatewayHandler(FallbackRegistry fallbackRegistry) {
+        this.fallbackRegistry = fallbackRegistry;
+    }
 
     /**
      * 初始化方法，在 Bean 创建完成后自动执行
@@ -40,9 +49,18 @@ public class SentinelGatewayHandler {
              */
             @Override
             public Mono<ServerResponse> handleRequest(ServerWebExchange exchange, Throwable throwable) {
-                // 委托给 CommonFallback 的统一处理方法，返回标准化的 JSON 错误响应
+                // 获取当前请求的路由ID、路径、请求方式等信息
+                Route route = exchange.getAttribute(ServerWebExchangeUtils.GATEWAY_ROUTE_ATTR);
+                String routeId = (route != null) ? route.getId() : "unknown";
+                String path = exchange.getRequest().getURI().getPath();
+                String method = exchange.getRequest().getMethod().name();
+
+                log.warn("Sentinel Block - routeId: {}, path: {}, method: {}, exception: {}",
+                        routeId, path, method, throwable.getClass().getSimpleName());
+
+                // 委托给 fallbackRegistry 的统一匹配调度处理，返回标准化的 JSON 错误响应
                 // 这样前端收到的不是 Sentinel 默认的 "Blocked by Sentinel" 文本，而是类似 {"code": 429, "msg": "请求过于频繁"} 的结构
-                return CommonFallback.gatewayBlockHandler();
+                return fallbackRegistry.execute(routeId, path, method, throwable);
             }
         });
     }

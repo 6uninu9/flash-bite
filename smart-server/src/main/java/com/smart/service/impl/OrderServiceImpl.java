@@ -269,10 +269,10 @@ public class OrderServiceImpl implements OrderService {
      */
     @Override
     @Transactional(rollbackFor = Exception.class)
-    public void cancelOrderAndReleaseStock(String orderId) {
+    public void cancelOrderAndReleaseStock(Long orderId) {
         // 1. 取消订单
         Orders orders = Orders.builder()
-                .id(Long.valueOf(orderId))
+                .id(orderId)
                 .status(Orders.CANCELLED)
                 .cancelReason("系统自动取消")
                 .cancelTime(LocalDateTime.now())
@@ -280,11 +280,11 @@ public class OrderServiceImpl implements OrderService {
         orderMapper.update(orders);
 
         // 2. 移除对应订单占用的用户优惠卷的订单id，让对应的用户优惠卷不再被占用
-        userCouponMapper.removeOrderIdByOrderId(Long.valueOf(orderId));
+        userCouponMapper.removeOrderIdByOrderId(orderId);
 
         // 3. 释放库存
         // 3.1. 查询订单明细
-        List<OrderDetail> orderDetails = orderDetailMapper.getByOrderId(Long.valueOf(orderId));
+        List<OrderDetail> orderDetails = orderDetailMapper.getByOrderId(orderId);
         // 3.2. 遍历明细，逐一释放菜品库存
         orderDetails.forEach(orderDetail -> {
             // 获取菜品

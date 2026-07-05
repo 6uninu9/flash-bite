@@ -52,20 +52,21 @@ public class DishHotCacheRebuildListener implements RocketMQListener<String> {
 
     @Override
     public void onMessage(String message) {
-        log.info("收到菜品热缓存重建消息，消息为：{}", message);
-
-        // 1. 获取菜品分类ID
-        Long categoryId = null;
-
-        // 2. 获取消息体格式
+        // 1. 消息校验与转换
+        if (message == null || message.trim().isEmpty()){
+            log.error("消息为空，无法处理。");
+            return;
+        }
+        log.info("收到菜品热缓存重建消息，菜品ID：{}", message);
+        long categoryId;
         try {
-            categoryId = Long.valueOf(message);
-        } catch (NumberFormatException e) { // TODO 异常捕获不完全 有可能是NULL NullPointerException
-            log.error("消息体格式错误，非数字类型或空字符串，无法处理。消息：{}", message, e);
+            categoryId = Long.parseLong(message);
+        } catch (NumberFormatException e) {
+            log.error("消息为空或者消息体格式错误，非数字类型或空字符串，无法处理。消息：{}", message, e);
             return;
         }
 
-        // 3. 幂等性校验，避免消息重复消费
+        // 2. 幂等性校验，避免消息重复消费
         if (Boolean.FALSE.equals(stringRedisTemplate.opsForValue().setIfAbsent(IDENTITY_KEY + categoryId, "", CacheTimeConstant.DUPLICATE_CHECK_TTL_SECONDS, TimeUnit.SECONDS))) {
             log.warn("菜品热缓存重建消息重复");
             return;
@@ -74,20 +75,20 @@ public class DishHotCacheRebuildListener implements RocketMQListener<String> {
         try {
             String key = CacheKeyConstants.HOT_CATEGORY_KEY_PREFIX + categoryId;
 
-            // 4. 查询数据库
+            // 3. 查询数据库
             Dish dish = new Dish();
             dish.setCategoryId(categoryId);
             dish.setStatus(StatusConstant.ENABLE);
             List<Dish> dishList = dishMapper.list(dish);
 
-            // 5. 查询结果为空，则缓存空结果，避免缓存穿透
+            // 4. 查询结果为空，则缓存空结果，避免缓存穿透
             if (dishList == null || dishList.isEmpty()) {
                 stringRedisTemplate.opsForValue().set(key, "", CacheTimeConstant.NULL_TTL_SECONDS, TimeUnit.SECONDS);
                 return;
             }
 
-            // 6. 查询结果不为空，将数据缓存到redis中
-            // 6.1. 封装查询结果
+            // 5. 查询结果不为空，将数据缓存到redis中
+            // 5.1. 封装查询结果
             List<DishVO> dishVOList = new ArrayList<>();
             for (Dish d : dishList) {
                 DishVO dishVO = new DishVO();
@@ -100,7 +101,7 @@ public class DishHotCacheRebuildListener implements RocketMQListener<String> {
                 dishVOList.add(dishVO);
             }
 
-            // 7. 缓存数据
+            // 6. 缓存数据
             RedisData redisData1 = RedisData.builder()
                     .data(dishVOList)
                     .expireTime(System.currentTimeMillis() + CacheTimeConstant.LOGICAL_EXPIRE_SECONDS * 1000)

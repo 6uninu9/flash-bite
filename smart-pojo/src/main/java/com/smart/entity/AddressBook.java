@@ -7,6 +7,7 @@ import lombok.NoArgsConstructor;
 
 import java.io.Serial;
 import java.io.Serializable;
+import java.time.LocalDateTime;
 
 /**
  * 地址簿
@@ -60,4 +61,10 @@ public class AddressBook implements Serializable {
 
     //是否默认 0否 1是
     private Integer isDefault;
+
+    //创建时间
+    private LocalDateTime createTime;
+
+    //更新时间
+    private LocalDateTime updateTime;
 }

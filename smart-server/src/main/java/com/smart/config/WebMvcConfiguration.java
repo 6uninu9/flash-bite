@@ -25,18 +25,11 @@ public class WebMvcConfiguration implements WebMvcConfigurer {
     public void addInterceptors(InterceptorRegistry registry) {
         log.info("开始注册拦截器");
         registry.addInterceptor(userContextInterceptor)
-                .addPathPatterns("/user/**") // 拦截/user路径下的所有请求
+                .addPathPatterns("/**") // 拦截所有请求
                 .excludePathPatterns(
-                        "/user/user/login",
-                        "/user/shop/status",
-                        "/v3/api-docs/**",            // OpenAPI 文档
-                        "/swagger-ui/**",             // Swagger UI
-                        "/swagger-resources/**",       // Swagger 资源
-                        "/doc.html",
-                        "/error", // 排除 Spring Boot 默认的错误处理路径
-                        "/user/category/list",
-                        "/user/dish/list"             // 用户查看菜品无需登录
-                ); // 排除登录接口
+                        "/error",                     // 只排除 Spring 错误页
+                        "/favicon.ico"               // 排除图标
+                );
     }
 
     // 配置OpenAPI自定义信息（可选）

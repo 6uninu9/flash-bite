@@ -1,6 +1,7 @@
 package com.smart.utils;
 
 import com.smart.constant.JwtConstant;
+import com.smart.exception.JwtException;
 import io.jsonwebtoken.*;
 import lombok.extern.slf4j.Slf4j;
 

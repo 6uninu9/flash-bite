@@ -29,9 +29,21 @@ public class DishColdCacheDeleteListener implements RocketMQListener<String> {
     }
 
     @Override
-    public void onMessage(String id) {
-        // TODO 参数未校验
-        String coldKey = CacheKeyConstants.COLD_CATEGORY_KEY_PREFIX + id;
+    public void onMessage(String message) {
+        if (message == null || message.trim().isEmpty()){
+            log.error("消息为空，无法处理。");
+            return;
+        }
+        log.info("收到菜品缓存删除消息，菜品ID：{}", message);
+        long categoryId;
+        try {
+            categoryId = Long.parseLong(message);
+        } catch (NumberFormatException e) {
+            log.error("消息为空或者消息体格式错误，非数字类型或空字符串，无法处理。消息：{}", message, e);
+            return;
+        }
+
+        String coldKey = CacheKeyConstants.COLD_CATEGORY_KEY_PREFIX + categoryId;
 
         stringRedisTemplate.delete(coldKey);
     }

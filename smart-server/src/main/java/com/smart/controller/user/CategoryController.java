@@ -5,6 +5,7 @@ import com.smart.result.Result;
 import com.smart.service.CategoryService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.constraints.NotNull;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -31,7 +32,7 @@ public class CategoryController {
     @Operation(
            summary = "根据类型查询分类"
     )
-    public Result<List<Category>> list(Integer type) {
+    public Result<List<Category>> list(@NotNull Integer type) {
         List<Category> list = categoryService.list(type);
         return Result.success(list);
     }

@@ -1,9 +1,11 @@
 package com.smart.controller.user;
 
 import com.smart.context.BaseContext;
+import com.smart.dto.AddressBookDTO;
 import com.smart.entity.AddressBook;
 import com.smart.result.Result;
 import com.smart.service.AddressBookService;
+import com.smart.vo.AddressBookVO;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -33,25 +35,25 @@ public class AddressBookController {
     @Operation(
             summary = "查询当前登录用户的所有地址信息"
     )
-    public Result<List<AddressBook>> list() {
+    public Result<List<AddressBookVO>> list() {
         AddressBook addressBook = new AddressBook();
         addressBook.setUserId(BaseContext.getCurrentId());
-        List<AddressBook> list = addressBookService.list(addressBook);
+        List<AddressBookVO> list = addressBookService.list(addressBook);
         return Result.success(list);
     }
 
     /**
      * 新增地址
      *
-     * @param addressBook 新增的地址信息
+     * @param addressBookDTO 新增的地址信息
      * @return 添加操作结果
      */
     @PostMapping
     @Operation(
             summary = "新增地址"
     )
-    public Result<String> save(@RequestBody AddressBook addressBook) {
-        addressBookService.save(addressBook);
+    public Result<String> save(@RequestBody AddressBookDTO addressBookDTO) {
+        addressBookService.save(addressBookDTO);
         return Result.success();
     }
 
@@ -65,38 +67,38 @@ public class AddressBookController {
     @Operation(
             summary = "根据id查询地址"
     )
-    public Result<AddressBook> getById(@PathVariable Long id) {
-        AddressBook addressBook = addressBookService.getById(id);
+    public Result<AddressBookVO> getById(@PathVariable Long id) {
+        AddressBookVO addressBook = addressBookService.getById(id);
         return Result.success(addressBook);
     }
 
     /**
      * 根据id修改地址
      *
-     * @param addressBook 修改的地址
+     * @param addressBookDTO 修改的地址
      * @return 修改操作结果
      */
     @PutMapping
     @Operation(
             summary = "根据id修改地址"
     )
-    public Result<String> update(@RequestBody AddressBook addressBook) {
-        addressBookService.update(addressBook);
+    public Result<String> update(@RequestBody AddressBookDTO  addressBookDTO) {
+        addressBookService.update(addressBookDTO);
         return Result.success();
     }
 
     /**
      * 设置默认地址
      *
-     * @param addressBook 设置的地址信息
+     * @param addressBookDTO 设置的地址信息
      * @return 设置操作结果
      */
     @PutMapping("/default")
     @Operation(
             summary = "设置默认地址"
     )
-    public Result<String> setDefault(@RequestBody AddressBook addressBook) {
-        addressBookService.setDefault(addressBook);
+    public Result<String> setDefault(@RequestBody AddressBookDTO addressBookDTO) {
+        addressBookService.setDefault(addressBookDTO);
         return Result.success();
     }
 
@@ -122,12 +124,12 @@ public class AddressBookController {
     @Operation(
             summary = "查询默认地址"
     )
-    public Result<AddressBook> getDefault() {
+    public Result<AddressBookVO> getDefault() {
         //SQL:select * from address_book where user_id = ? and is_default = 1
         AddressBook addressBook = new AddressBook();
         addressBook.setIsDefault(1);
         addressBook.setUserId(BaseContext.getCurrentId());
-        List<AddressBook> list = addressBookService.list(addressBook);
+        List<AddressBookVO> list = addressBookService.list(addressBook);
 
         if (list != null && list.size() == 1) {
             return Result.success(list.getFirst());

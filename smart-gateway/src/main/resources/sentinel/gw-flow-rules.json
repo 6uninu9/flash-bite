@@ -1,14 +1,52 @@
 [
   {
     "resource": "seckill-post-route",
+    "resourceMode": 0,
+    "grade": 1,
     "count": 1000.0,
     "intervalSec": 1,
     "controlBehavior": 0,
-    "burst": 0,
-    "maxQueueingTimeoutMs": 0,
-    "paramItem": {
-      "parseStrategy": 0,
-      "fieldName": ""
-    }
+    "burst": 200,
+    "maxQueueingTimeoutMs": 0
+  },
+  {
+    "resource": "dish-query-route",
+    "resourceMode": 0,
+    "grade": 1,
+    "count": 2000.0,
+    "intervalSec": 1,
+    "controlBehavior": 0,
+    "burst": 500,
+    "maxQueueingTimeoutMs": 0
+  },
+  {
+    "resource": "order-submit-route",
+    "resourceMode": 0,
+    "grade": 1,
+    "count": 350.0,
+    "intervalSec": 1,
+    "controlBehavior": 0,
+    "burst": 50,
+    "maxQueueingTimeoutMs": 0
+  },
+  {
+    "resource": "addressBook-list-route",
+    "resourceMode": 0,
+    "grade": 1,
+    "count": 1000.0,
+    "intervalSec": 1,
+    "controlBehavior": 0,
+    "burst": 200,
+    "maxQueueingTimeoutMs": 0
+  },
+  {
+    "resource": "user-login-route",
+    "resourceMode": 0,
+    "grade": 1,
+    "count": 100.0,
+    "intervalSec": 1,
+    "controlBehavior": 0,
+    "burst": 20,
+    "maxQueueingTimeoutMs": 0
   }
 ]

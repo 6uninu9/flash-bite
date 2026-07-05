@@ -1,10 +1,36 @@
 [
   {
     "resource": "seckill-post-route",
-    "grade": 1,
-    "count": 0.5,
+    "grade": 0,
+    "count": 200.0,
     "timeWindow": 10,
-    "minRequestAmount": 3,
+    "minRequestAmount": 10,
+    "statIntervalMs": 1000,
+    "slowRatioThreshold": 0.5
+  },
+  {
+    "resource": "dish-query-route",
+    "grade": 0,
+    "count": 500.0,
+    "timeWindow": 10,
+    "minRequestAmount": 20,
+    "statIntervalMs": 1000,
+    "slowRatioThreshold": 0.6
+  },
+  {
+    "resource": "order-submit-route",
+    "grade": 2,
+    "count": 0.3,
+    "timeWindow": 10,
+    "minRequestAmount": 5,
+    "statIntervalMs": 1000
+  },
+  {
+    "resource": "addressBook-list-route",
+    "grade": 2,
+    "count": 0.4,
+    "timeWindow": 10,
+    "minRequestAmount": 10,
     "statIntervalMs": 1000
   }
 ]

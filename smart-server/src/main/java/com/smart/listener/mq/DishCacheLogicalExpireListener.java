@@ -36,23 +36,29 @@ public class DishCacheLogicalExpireListener implements RocketMQListener<String> 
     }
 
     @Override
-    public void onMessage(String id) {
-
-        // 1. 消息校验
-        // TODO 参数校验校验不完全 可能会是其他数据
-        if (id == null || id.isEmpty()){
-            log.warn("菜品缓存逻辑过期设置消息处理失败，id为空");
+    public void onMessage(String message) {
+        // 1. 消息校验与转换
+        if (message == null || message.trim().isEmpty()){
+            log.error("消息为空，无法处理。");
+            return;
+        }
+        log.info("收到菜品逻辑过期消息，菜品ID：{}", message);
+        long categoryId;
+        try {
+            categoryId = Long.parseLong(message);
+        } catch (NumberFormatException e) {
+            log.error("消息为空或者消息体格式错误，非数字类型或空字符串，无法处理。消息：{}", message, e);
             return;
         }
 
         // 2. 幂等性校验，避免消息重复消费
-        if (Boolean.FALSE.equals(stringRedisTemplate.opsForValue().setIfAbsent(IDENTITY_KEY + id, "", CacheTimeConstant.DUPLICATE_CHECK_TTL_SECONDS, TimeUnit.SECONDS))) {
+        if (Boolean.FALSE.equals(stringRedisTemplate.opsForValue().setIfAbsent(IDENTITY_KEY + categoryId, "", CacheTimeConstant.DUPLICATE_CHECK_TTL_SECONDS, TimeUnit.SECONDS))) {
             log.warn("菜品热缓存重建消息重复");
             return;
         }
 
         try {
-            String hotCategoryKey = CacheKeyConstants.HOT_CATEGORY_KEY_PREFIX + id;
+            String hotCategoryKey = CacheKeyConstants.HOT_CATEGORY_KEY_PREFIX + categoryId;
 
             // 3. 设置逻辑过期时间
             String redisDataJson = stringRedisTemplate.opsForValue().get(hotCategoryKey);
@@ -70,7 +76,7 @@ public class DishCacheLogicalExpireListener implements RocketMQListener<String> 
         } catch (Exception e) {
             log.error("菜品逻辑过期设置异常：{}", e.getMessage());
             // 移除幂等标识 进行补偿重试
-            stringRedisTemplate.delete(IDENTITY_KEY + id);
+            stringRedisTemplate.delete(IDENTITY_KEY + categoryId);
             throw new RuntimeException(e);
         }
     }

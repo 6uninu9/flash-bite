@@ -42,12 +42,13 @@ spring:
           filters:
             - name: RequestRateLimiter
               args:
+                # 参数 replenishRate=20 + burstCapacity=50 允许每秒最多20次请求，但可容忍短时50次突发（例如瞬间点击），超过则返回 HTTP 429。
                 # 公共接口阈值放宽，主要防恶意爬虫和 DDoS
                 redis-rate-limiter.replenishRate: 20  # 单 IP 每秒允许 20 次
                 redis-rate-limiter.burstCapacity: 50 # 单 IP 最大突发 50 次
                 redis-rate-limiter.requestedTokens: 1
                 key-resolver: "#{@authKeyResolver}"   # 自动走 IP 降级逻辑
-        # 秒杀接口专属路由 (精细化限流)
+        # 秒杀接口专属路由
         - id: seckill-post-route
           uri: http://localhost:8081
           predicates:
@@ -63,10 +64,53 @@ spring:
                 redis-rate-limiter.burstCapacity: 20  # 令牌桶总容量 (最大并发)
                 redis-rate-limiter.requestedTokens: 1 # 每次请求消耗的令牌数
                 key-resolver: "#{@authKeyResolver}"   # 自定义限流维度
+        # 下单接口专属路由
+        - id: order-submit-route
+          uri: http://localhost:8081
+          predicates:
+            - Path=/user/order/submit
+          filters:
+            - name: RequestRateLimiter
+              args:
+                # 允许每秒最多5次请求，但可容忍短时10次突发（例如瞬间点击），超过则返回 HTTP 429。
+                redis-rate-limiter.replenishRate: 5
+                redis-rate-limiter.burstCapacity: 10
+                redis-rate-limiter.requestedTokens: 1
+                key-resolver: "#{@authKeyResolver}"
+        # 查询用户地址簿接口专属路由
+        - id: addressBook-list-route
+          uri: http://localhost:8081
+          predicates:
+            - Path=/user/addressBook/list
+          filters:
+            - name: RequestRateLimiter
+              args:
+                # 允许每秒最多10次请求，但可容忍短时20次突发（例如瞬间点击），超过则返回 HTTP 429。
+                redis-rate-limiter.replenishRate: 10
+                redis-rate-limiter.burstCapacity: 20
+                redis-rate-limiter.requestedTokens: 1
+                key-resolver: "#{@authKeyResolver}"
+        # 用户登录接口专属路由
+        - id: user-login-route
+          uri: http://localhost:8081
+          predicates:
+            - Path=/user/user/login
+          filters:
+            - name: RequestRateLimiter
+              args:
+                # 允许每秒最多3次请求，但可容忍短时5次突发（例如瞬间点击），超过则返回 HTTP 429。
+                redis-rate-limiter.replenishRate: 3
+                redis-rate-limiter.burstCapacity: 5
+                redis-rate-limiter.requestedTokens: 1
+                key-resolver: "#{@authKeyResolver}"
+        - id: user-route
+          uri: http://localhost:8081
+          predicates:
+            - Path=/user/**
         - id: admin-route
           uri: http://localhost:8081
           predicates:
-              - Path=/admin/**
+            - Path=/admin/**
         # swagger-ui路由
         - id: swagger-ui
           uri: http://localhost:8081
