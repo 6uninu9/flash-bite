@@ -18,14 +18,6 @@ public interface CouponMapper {
     List<String> listAllIds();
 
     /**
-     * 扣减优惠券库存
-     * @param couponId 优惠券id
-     * @param number 扣减数量
-     */
-    @Update("update coupon set surplus_stock = surplus_stock - #{number} where id = #{couponId} and coupon.surplus_stock >= #{number}")
-    void deductCouponStockByCouponId(String couponId, int number);
-
-    /**
      * 根据id查询优惠券
      * @param couponId 优惠券id
      * @return 优惠券

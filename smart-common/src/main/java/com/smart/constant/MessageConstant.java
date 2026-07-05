@@ -15,7 +15,6 @@ public class MessageConstant {
     public static final String LOGIN_FAILED = "登录失败";
     public static final String DISH_ON_SALE = "起售中的菜品不能删除";
     public static final String ORDER_NOT_FOUND = "订单不存在";
-    public static final String ASYNC_TIMEOUT = "异步任务执行超时";
     public static final String COUPON_STOCK_NOT_ENOUGH = "优惠券已被抢完";
     public static final String ACTIVITY_TOO_BUSY = "活动太火爆，请稍后再试";
     public static final String SYSTEM_BUSY = "系统繁忙，请稍后再试";
