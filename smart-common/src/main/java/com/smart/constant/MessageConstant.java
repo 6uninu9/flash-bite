@@ -35,4 +35,8 @@ public class MessageConstant {
     public static final String ACTIVITY_NOT_EXIST = "活动不存在";
     public static final String ACTIVITY_NOT_START = "活动未开始";
     public static final String ACTIVITY_ENDED = "活动已结束";
+    public static final String ORDER_MERCHANT_ACCEPTED = "商家已接单";
+    public static final String ORDER_DELIVERING = "订单派送中";
+    public static final String ORDER_COMPLETED = "订单已完成";
+    public static final String ORDER_ALREADY_CANCELLED = "订单已取消";
 }

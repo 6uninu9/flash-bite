@@ -1,5 +1,6 @@
 package com.smart.service;
 
+import com.smart.dto.OrderReminderDTO;
 import com.smart.dto.OrdersPaymentDTO;
 import com.smart.dto.OrdersSubmitDTO;
 import com.smart.entity.Orders;
@@ -33,4 +34,16 @@ public interface OrderService {
      * @return 订单支付结果
      */
     OrderPaymentVO payment(OrdersPaymentDTO ordersPaymentDTO);
+
+    /**
+     * 用户取消订单
+     * @param id 订单id
+     */
+    void userCancelById(Long id);
+
+    /**
+     * 订单催单
+     * @param orderReminderDTO 订单催单请求数据
+     */
+    void reminder(OrderReminderDTO orderReminderDTO);
 }

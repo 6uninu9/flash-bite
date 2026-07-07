@@ -5,6 +5,7 @@ import com.alibaba.fastjson.JSONObject;
 import com.alibaba.fastjson2.JSON;
 import com.smart.constant.MessageConstant;
 import com.smart.context.BaseContext;
+import com.smart.dto.OrderReminderDTO;
 import com.smart.dto.OrdersPaymentDTO;
 import com.smart.dto.OrdersSubmitDTO;
 import com.smart.entity.*;
@@ -393,5 +394,102 @@ public class OrderServiceImpl implements OrderService {
         WebSocketServer.sendToUser(String.valueOf(ordersPaymentDTO.getMerchantId()), JSON.toJSONString(map));
 
         return vo;
+    }
+
+    /**
+     * 用户取消订单
+     *
+     * @param id 订单id
+     */
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void userCancelById(Long id) {
+        //根据订单id查询订单
+        Orders orderDB = orderMapper.getById(id);
+
+        //校验订单是否存在
+        if (orderDB == null) {
+            throw new OrderBusinessException(MessageConstant.ORDER_NOT_FOUND);
+        }
+
+        //检验订单状态 订单状态 1待付款 2待接单 3已接单 4派送中 5已完成 6已取消
+        if (Objects.equals(orderDB.getStatus(), Orders.CONFIRMED)) {
+            throw new OrderBusinessException(MessageConstant.ORDER_MERCHANT_ACCEPTED);
+        }
+        if (Objects.equals(orderDB.getStatus(), Orders.DELIVERY_IN_PROGRESS)) {
+            throw new OrderBusinessException(MessageConstant.ORDER_DELIVERING);
+        }
+        if (Objects.equals(orderDB.getStatus(), Orders.COMPLETED)) {
+            throw new OrderBusinessException(MessageConstant.ORDER_COMPLETED);
+        }
+        if (Objects.equals(orderDB.getStatus(), Orders.CANCELLED)) {
+            throw new OrderBusinessException(MessageConstant.ORDER_ALREADY_CANCELLED);
+        }
+
+        Orders orders = new Orders();
+        orders.setId(orderDB.getId());
+
+        //订单处于待接单状态下取消，需要进行退款
+        if (orderDB.getStatus().equals(Orders.TO_BE_CONFIRMED)) {
+            //因为没有实现微信支付功能，所以也无法实现退款，暂时忽略
+//            String refund = weChatPayUtil.refund(
+//                    ordersDB.getNumber(),
+//                    ordersDB.getNumber(),
+//                    new BigDecimal(0.01),
+//                    new BigDecimal(0.01));
+//            log.info("申请退款：{}", refund);
+
+            //支付状态修改为退款
+            orders.setPayStatus(Orders.REFUND);
+        }
+
+        orders.setStatus(Orders.CANCELLED);
+        orders.setCancelReason("用户取消");
+        orders.setCancelTime(LocalDateTime.now());
+        orderMapper.update(orders);
+
+        // 移除对应订单占用的用户优惠卷的订单id，让对应的用户优惠卷不再被占用
+        userCouponMapper.removeOrderIdByOrderId(id);
+
+        // 释放库存
+        // 查询订单明细
+        List<OrderDetail> orderDetails = orderDetailMapper.getByOrderId(id);
+        // 遍历明细，逐一释放菜品库存
+        orderDetails.forEach(orderDetail -> {
+            // 获取菜品
+            Dish dish = dishMapper.getById(orderDetail.getDishId());
+            // 释放库存
+            Dish newDish = Dish.builder().id(orderDetail.getDishId())
+                    .stock(dish.getStock() + orderDetail.getNumber())
+                    .updateTime(LocalDateTime.now())
+                    .updateUser(0L)
+                    .build();
+            dishMapper.update(newDish);
+        });
+    }
+
+    /**
+     * 订单催单
+     *
+     * @param orderReminderDTO 订单催单请求数据
+     */
+    @Override
+    public void reminder(OrderReminderDTO orderReminderDTO) {
+        Long orderId = orderReminderDTO.getOrderId();
+        Long merchantId = orderReminderDTO.getMerchantId();
+
+        // 根据id查询订单
+        Orders ordersDB = orderMapper.getById(orderId);
+
+        // 校验订单是否存在
+        if (ordersDB == null) {
+            throw new OrderBusinessException(MessageConstant.ORDER_NOT_FOUND);
+        }
+
+        Map<String, Object> map = new HashMap<>();
+        map.put("type", 1);//1表示来单提醒 2表示催单
+        map.put("orderId", Math.toIntExact(orderId));
+        map.put("content", "订单号:" + ordersDB.getNumber());
+        WebSocketServer.sendToUser(String.valueOf(merchantId), JSON.toJSONString(map));
     }
 }

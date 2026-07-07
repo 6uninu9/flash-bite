@@ -1,6 +1,7 @@
 package com.smart.controller.user;
 
 
+import com.smart.dto.OrderReminderDTO;
 import com.smart.dto.OrdersPaymentDTO;
 import com.smart.dto.OrdersSubmitDTO;
 import com.smart.result.Result;
@@ -57,5 +58,36 @@ public class OrderController {
         OrderPaymentVO orderPaymentVO = orderService.payment(ordersPaymentDTO);
         log.info("生成预支付交易单：{}", orderPaymentVO);
         return Result.success(orderPaymentVO);
+    }
+
+    /**
+     * 取消订单
+     *
+     * @param id 订单id
+     * @return 订单取消结果
+     */
+    @PutMapping("/cancel/{id}")
+    @Operation(
+            summary = "取消订单"
+    )
+    public Result<String> cancel(@PathVariable("id") Long id) {
+        log.info("用户取消的订单id：{}", id);
+        orderService.userCancelById(id);
+        return Result.success();
+    }
+
+    /**
+     * 订单催单
+     * @param orderReminderDTO 订单催单请求数据
+     * @return 订单催单结果
+     */
+    @GetMapping("/reminder")
+    @Operation(
+            summary = "订单催单"
+    )
+    public Result<String> reminder(OrderReminderDTO orderReminderDTO){
+        log.info("订单催单的订单id：{}", orderReminderDTO);
+        orderService.reminder(orderReminderDTO);
+        return Result.success();
     }
 }
