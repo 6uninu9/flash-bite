@@ -48,7 +48,7 @@ public class GlobalExceptionHandler {
      * @return 统一错误结果
      */
     @ExceptionHandler(SystemException.class)
-    @ResponseStatus(HttpStatus.INTERNAL_SERVER_ERROR) // 显式返回 500，触发网关 Sentinel 异常统计
+    @ResponseStatus(HttpStatus.INTERNAL_SERVER_ERROR) // 显式返回 500，供客户端识别系统错误
     public Result<?> handleSystemException(HttpServletRequest request, SystemException ex) {
         // 系统异常记录 ERROR，必须携带上下文参数和完整堆栈 (ex 作为最后一个参数传入)
         log.error("系统异常拦截 | URI: {} | 错误描述: {}", request.getRequestURI(), ex.getMessage(), ex);

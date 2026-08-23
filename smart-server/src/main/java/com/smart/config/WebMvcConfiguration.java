@@ -6,6 +6,7 @@ import io.swagger.v3.oas.models.info.Info;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.web.servlet.config.annotation.CorsRegistry;
 import org.springframework.web.servlet.config.annotation.InterceptorRegistry;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 
@@ -30,6 +31,17 @@ public class WebMvcConfiguration implements WebMvcConfigurer {
                         "/error",                     // 只排除 Spring 错误页
                         "/favicon.ico"               // 排除图标
                 );
+    }
+
+    // 接管原网关的跨域响应；JWT 通过请求头传递，因此不允许跨域携带 Cookie。
+    @Override
+    public void addCorsMappings(CorsRegistry registry) {
+        registry.addMapping("/**")
+                .allowedOriginPatterns("*")
+                .allowedMethods("GET", "POST", "PUT", "DELETE", "OPTIONS")
+                .allowedHeaders("*")
+                .allowCredentials(false)
+                .maxAge(3600);
     }
 
     // 配置OpenAPI自定义信息（可选）
