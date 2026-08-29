@@ -253,8 +253,8 @@ public class HotCategoryAutoDetectTask {
             stringRedisTemplate.opsForZSet().incrementScore(sliceKey, categoryId, 1);
             // 每次操作后，重新设置过期时间，以保证活跃的时间片不会过期
             stringRedisTemplate.expire(sliceKey, TIME_SLICE_KEY_TTL_SECONDS, TimeUnit.SECONDS);
-        } catch (RedisSystemException e) {
-            // 预期内的redis故障，降级到本地计数器
+        } catch (RedisConnectionFailureException | RedisSystemException | QueryTimeoutException e) {
+            // 预期内的Redis故障（宕机/连接失败/超时），降级到本地计数器
             log.warn("Redis访问计数失败，降级到本地计数器，categoryId:{}", categoryId, e);
             if (localAccessCounts.size() < MAX_LOCAL_COUNTER_SIZE) {
                 localAccessCounts.computeIfAbsent(categoryId, k -> new LongAdder()).increment();

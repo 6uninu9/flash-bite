@@ -31,6 +31,8 @@ import org.redisson.api.RLock;
 import org.redisson.api.RedissonClient;
 import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.dao.QueryTimeoutException;
+import org.springframework.data.redis.RedisConnectionFailureException;
 import org.springframework.data.redis.RedisSystemException;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
@@ -362,7 +364,14 @@ public class DishServiceImpl implements DishService {
     private List<DishVO> getColdCategoryDishes(Long categoryId) {
         // 1. 查询缓存
         String key = CacheKeyConstants.COLD_CATEGORY_KEY_PREFIX + categoryId;
-        String redisDataJson = stringRedisTemplate.opsForValue().get(key);
+        String redisDataJson;
+        try {
+            redisDataJson = stringRedisTemplate.opsForValue().get(key);
+        } catch (RedisConnectionFailureException | RedisSystemException | QueryTimeoutException e) {
+            // 兜底策略：Redis 宕机/超时/连接异常时，降级直查数据库，保证冷缓存读路径不因 Redis 故障而不可用
+            log.error("Redis不可用，冷缓存降级直查数据库，categoryId：{}", categoryId, e);
+            return queryDishFromDb(categoryId);
+        }
 
         // 2. 缓存存在
         if (redisDataJson != null && !redisDataJson.isEmpty()) {
@@ -386,7 +395,12 @@ public class DishServiceImpl implements DishService {
 
         // 6. 菜品数据不存在，缓存空结果并返回空集合
         if (dishList == null || dishList.isEmpty()) {
-            stringRedisTemplate.opsForValue().set(key, "", CacheTimeConstant.NULL_TTL_SECONDS, TimeUnit.SECONDS);
+            try {
+                stringRedisTemplate.opsForValue().set(key, "", CacheTimeConstant.NULL_TTL_SECONDS, TimeUnit.SECONDS);
+            } catch (RedisConnectionFailureException | RedisSystemException | QueryTimeoutException e) {
+                // 兜底：此时 Redis 故障，仅记录日志，不阻断返回空结果
+                log.error("冷缓存空结果回种失败（Redis不可用），categoryId：{}", categoryId, e);
+            }
             return List.of();
         }
 
@@ -408,8 +422,12 @@ public class DishServiceImpl implements DishService {
         // 9. 将查询结果缓存到redis中
         // 9.1. 设置过期时间TTL（实现自动清理冷缓存，节省缓存内存） 30分钟+随机值（避免缓存雪崩）
         long ttl = CacheTimeConstant.COMMON_TTL_SECONDS + ThreadLocalRandom.current().nextLong(CacheTimeConstant.RANDOM_TTL_SECONDS + 1);
-        // 9.2. 缓存数据
-        stringRedisTemplate.opsForValue().set(key, JSONObject.toJSONString(dishVOList), ttl, TimeUnit.SECONDS);
+        // 9.2. 缓存数据；若此时 Redis 故障，仅记录日志，仍返回数据库查询结果
+        try {
+            stringRedisTemplate.opsForValue().set(key, JSONObject.toJSONString(dishVOList), ttl, TimeUnit.SECONDS);
+        } catch (RedisConnectionFailureException | RedisSystemException | QueryTimeoutException e) {
+            log.error("冷缓存回种失败（Redis不可用），categoryId：{}", categoryId, e);
+        }
 
         // 10. 返回DishVO对象列表
         return dishVOList;
@@ -502,8 +520,8 @@ public class DishServiceImpl implements DishService {
 
             // 7. 返回空数据
             return getColdCategoryDishes(categoryId);
-        } catch (RedisSystemException e) {
-            // Redis 异常，正常降级
+        } catch (RedisConnectionFailureException | RedisSystemException | QueryTimeoutException e) {
+            // Redis 异常（宕机/连接失败/超时），正常降级：直查 DB 并回写 L1 本地缓存
             log.error("Redis不可用，触发降级，categoryId:{}", categoryId, e);
             return fallbackQueryDbAndCacheLocal(localKey, categoryId);
         } catch (Exception e) {
