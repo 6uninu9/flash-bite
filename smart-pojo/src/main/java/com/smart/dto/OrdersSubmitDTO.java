@@ -9,7 +9,6 @@ import java.io.Serial;
 import java.io.Serializable;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
-import java.util.List;
 
 @Data
 @Schema(name = "OrdersSubmitDTO", description = "用户提交订单时传递的数据模型")
@@ -68,7 +67,7 @@ public class OrdersSubmitDTO implements Serializable {
     @Schema(description = "订单总金额")
     private BigDecimal amount;
 
-    //用户优惠卷id集合（用户可能不止选了一张优惠卷）
-    @Schema(description = "用户优惠券ID集合")
-    private List<Long> userCouponIds;
+    //用户优惠券id，一张订单最多使用一张优惠券
+    @Schema(description = "用户优惠券ID")
+    private Long userCouponId;
 }

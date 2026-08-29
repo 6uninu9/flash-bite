@@ -178,6 +178,9 @@ create table if not exists orders
     pay_method              int               null comment '支付方式',
     pay_status              tinyint default 0 not null comment '支付状态',
     amount                  decimal(10, 2)    not null comment '订单金额',
+    original_amount         decimal(10, 2)    not null comment '优惠前金额',
+    discount_amount         decimal(10, 2)    not null comment '优惠金额',
+    user_coupon_id          bigint            null comment '本订单使用的用户优惠券ID',
     remark                  varchar(100)      null comment '备注',
     phone                   varchar(11)       null comment '收货人手机号',
     address                 varchar(255)      null comment '收货地址',
@@ -252,7 +255,8 @@ create table if not exists user_coupon
     is_seckill       tinyint        default 0                 not null comment '是否秒杀券 0=普通 1=秒杀',
     use_time         datetime                                 null comment '使用时间',
     order_id         bigint                                   null comment '关联订单ID',
-    status           tinyint        default 0                 not null comment '优惠券状态：0-未使用 1-已使用 2-已过期',
+    reserved_at      datetime                                 null comment '订单锁券时间',
+    status           tinyint        default 0                 not null comment '优惠券状态：0-可用 1-已使用 2-已过期 3-已锁定',
     create_time      datetime       default CURRENT_TIMESTAMP null,
     constraint uk_user_coupon
         unique (user_id, coupon_id)

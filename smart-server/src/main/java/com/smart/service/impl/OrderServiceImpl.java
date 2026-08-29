@@ -24,11 +24,9 @@ import org.springframework.messaging.Message;
 import org.springframework.messaging.support.MessageBuilder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.util.CollectionUtils;
 import org.springframework.util.StringUtils;
 
 import java.math.BigDecimal;
-import java.math.RoundingMode;
 import java.time.LocalDateTime;
 import java.util.*;
 
@@ -72,44 +70,15 @@ public class OrderServiceImpl implements OrderService {
     public OrderSubmitVO submitOrder(OrdersSubmitDTO ordersSubmitDTO) {
         // 获取用户id
         Long userId = BaseContext.getCurrentId();
-        // 获取用户优惠卷id集合
-        List<Long> userCouponIds = ordersSubmitDTO.getUserCouponIds();
+        // 一张订单最多使用一张用户优惠券。
+        Long userCouponId = ordersSubmitDTO.getUserCouponId();
 
-        // 1. 判断使用的优惠卷有没有给其他订单使用，即用户持有的优惠卷有没有订单id，没有则添加订单id
-        //    并返回用户优惠卷集合用于主线程批量添加订单id
-        // 主要是为了解决 用户下单使用了优惠卷，但是未支付，而另下单使用相同的优惠卷导致最后支付发生的优惠卷使用冲突的问题
-        // 在用户下单时占用使用的优惠卷 除非用户主动取消订单、用户支付超时系统自动取消订单、商家拒单、执行发生异常将用户持有的优惠卷中的订单id置为空
-        // 否则不能使用同一张优惠卷重复下单
-        // 但是一般来说用户在选择需要使用的优惠卷时应该看不到有订单使用的优惠卷或者是灰色不可选择的，但是为了以防万一，还是应该进行检查
-        List<UserCoupon> userCoupons;
-        if (userCouponIds == null || userCouponIds.isEmpty()) {
-            // 返回空集合
-            userCoupons = List.of();
-        } else {
-            // 获取用户使用的优惠卷
-            userCoupons = userCouponMapper.getByIds(userCouponIds);
-            if (CollectionUtils.isEmpty(userCoupons)) {
-                throw new OrderBusinessException(MessageConstant.COUPON_NOT_EXIST);
-            }
-            // 遍历用户占用的优惠卷，进行相关校验
-            userCoupons.forEach(userCoupon -> {
-                // 校验归属用户
-                if (!userId.equals(userCoupon.getUserId())) {
-                    throw new OrderBusinessException(MessageConstant.COUPON_NOT_BELONG_TO_CURRENT_USER);
-                }
-                // 校验是否已使用
-                if (userCoupon.getStatus() == UserCoupon.STATUS_USED) {
-                    throw new OrderBusinessException(MessageConstant.COUPON_ALREADY_USED);
-                }
-                // 校验是否已过期
-                if (userCoupon.getStatus() == UserCoupon.STATUS_EXPIRE) {
-                    throw new OrderBusinessException(MessageConstant.COUPON_ALREADY_EXPIRED);
-                }
-                if (userCoupon.getOrderId() != null) {
-                    // 优惠卷已被其他订单占用
-                    throw new BaseException(MessageConstant.COUPON_OCCUPIED_BY_OTHER_ORDER);
-                }
-            });
+        // tablewareNumber/packAmount 未传时若不兜底，复制到订单实体的原始类型字段会抛异常
+        if (ordersSubmitDTO.getTablewareNumber() == null) {
+            ordersSubmitDTO.setTablewareNumber(0);
+        }
+        if (ordersSubmitDTO.getPackAmount() == null) {
+            ordersSubmitDTO.setPackAmount(0);
         }
 
         // 2. 获取地址簿
@@ -140,47 +109,44 @@ public class OrderServiceImpl implements OrderService {
             }
         });
 
-        // 4. 查询优惠卷获取优惠后的支付金额
-        // 能够选择的优惠卷应该由前端筛选，所以这里只需计算前端传来的优惠卷id对应的优惠金额总和并返回即可
-        // 事实上，为了拓展性应该在user_coupon表中添加扣减金额discount_amount、优惠卷名称name、有效时间valid_days这三个字段
-        // 因为运营可能会修改优惠卷的金额、名称、有效时间，但是用户领取过的优惠卷是不应该被修改的，不然容易引发投诉
-        // 其次计算扣减金额时都要查询优惠卷，高并发下性能有所影响
-        // 所以除非规定优惠卷永不修改，才可以使用如下代码，但是如果业务多变、运营强势，那么最好添加
-        // 而我没有修改是觉得麻烦 因为一旦修改 又要修改其他功能模块 比如秒杀优惠卷 所以就暂时搁置
-        BigDecimal netPayAmount;
-        if (userCouponIds == null || userCouponIds.isEmpty()) {
-            netPayAmount = BigDecimal.ZERO;
-        } else {
-            // 获取用户支付的原始金额，复用购物车查询结果
-            BigDecimal originalAmount = shoppingCarts.stream().map(ShoppingCart::getAmount)
-                    .reduce(BigDecimal.ZERO, BigDecimal::add);
+        // 4. 服务端按“菜品单价 × 数量 + 打包费”计算优惠前金额，不能信任客户端金额。
+        BigDecimal dishAmount = shoppingCarts.stream()
+                .map(cart -> cart.getAmount().multiply(BigDecimal.valueOf(cart.getNumber())))
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        // packAmount 的请求单位为分，订单金额字段统一使用元。
+        BigDecimal packAmount = BigDecimal.valueOf(ordersSubmitDTO.getPackAmount() == null ? 0 : ordersSubmitDTO.getPackAmount(), 2);
+        BigDecimal originalAmount = dishAmount.add(packAmount);
+        BigDecimal discountAmount = BigDecimal.ZERO;
 
-            // 判断优惠卷是否满足使用条件
-            for (UserCoupon userCoupon : userCoupons) {
-                if (userCoupon == null) continue;
-                BigDecimal minPrice = userCoupon.getThresholdAmount(); // 优惠券满减门槛：满XX可用
-                if (originalAmount.compareTo(minPrice) < 0) {
-                    // 构建异常信息
-                    String message = String.format(MessageConstant.COUPON_MIN_PRICE_NOT_MET, minPrice);
-                    throw new OrderBusinessException(message);
-                }
+        if (userCouponId != null) {
+            UserCoupon userCoupon = userCouponMapper.getById(userCouponId);
+            if (userCoupon == null) {
+                throw new OrderBusinessException(MessageConstant.COUPON_NOT_EXIST);
             }
-
-            // 获取优惠卷集合中的优惠金额
-            BigDecimal couponAmount = userCoupons.stream() // 把优惠券列表转换成 Stream 流
-                    .filter(Objects::nonNull) // 过滤出不为空的对象
-                    .map(UserCoupon::getDiscountAmount) // 类型转换，把流里的每一个用户优惠券对象，转换成对应的优惠金额
-                    .reduce(BigDecimal.ZERO, BigDecimal::add) // 聚合计算，把流里的多个数据合并成一个数据，即将BigDecimal.ZERO与其他优惠金额进行相加
-                    .setScale(2, RoundingMode.HALF_UP);// 将计算出的总金额保留 2 位小数 + 四舍五入
-
-            // 计算优惠后的支付金额
-            netPayAmount = originalAmount.subtract(couponAmount);
-            // 如果优惠后金额 ≤ 0
-            if (netPayAmount.compareTo(BigDecimal.ZERO) <= 0) {
-                // 优惠金额不能超过订单金额，支付金额最低为0，将支付金额设置为0
-                netPayAmount = BigDecimal.ZERO;
+            if (!userId.equals(userCoupon.getUserId())) {
+                throw new OrderBusinessException(MessageConstant.COUPON_NOT_BELONG_TO_CURRENT_USER);
             }
+            if (Objects.equals(userCoupon.getStatus(), UserCoupon.STATUS_USED)) {
+                throw new OrderBusinessException(MessageConstant.COUPON_ALREADY_USED);
+            }
+            if (Objects.equals(userCoupon.getStatus(), UserCoupon.STATUS_EXPIRE)
+                    || !userCoupon.getExpireTime().isAfter(LocalDateTime.now())) {
+                throw new OrderBusinessException(MessageConstant.COUPON_ALREADY_EXPIRED);
+            }
+            if (!Objects.equals(userCoupon.getStatus(), UserCoupon.STATUS_AVAILABLE)) {
+                throw new OrderBusinessException(MessageConstant.COUPON_OCCUPIED_BY_OTHER_ORDER);
+            }
+            if (!Objects.equals(userCoupon.getCouponType(), UserCoupon.TYPE_FULL_REDUCTION)
+                    && !Objects.equals(userCoupon.getCouponType(), UserCoupon.TYPE_DIRECT_DISCOUNT)) {
+                throw new OrderBusinessException(MessageConstant.COUPON_NOT_EXIST);
+            }
+            BigDecimal thresholdAmount = userCoupon.getThresholdAmount();
+            if (originalAmount.compareTo(thresholdAmount) < 0) {
+                throw new OrderBusinessException(String.format(MessageConstant.COUPON_MIN_PRICE_NOT_MET, thresholdAmount));
+            }
+            discountAmount = userCoupon.getDiscountAmount();
         }
+        BigDecimal netPayAmount = originalAmount.subtract(discountAmount).max(BigDecimal.ZERO);
 
         // 7. 插入订单数据
         Orders orders = new Orders();
@@ -189,12 +155,20 @@ public class OrderServiceImpl implements OrderService {
         orders.setPayStatus(Orders.UN_PAID);
         orders.setStatus(Orders.PENDING_PAYMENT);
         orders.setAmount(netPayAmount); // 支付金额
+        orders.setOriginalAmount(originalAmount);
+        orders.setDiscountAmount(discountAmount);
+        orders.setUserCouponId(userCouponId);
         orders.setNumber(IdUtil.getSnowflakeNextIdStr()); // 使用hutool工具包中的雪花算法生成订单号
         orders.setPhone(addressBook.getPhone());
         orders.setConsignee(addressBook.getConsignee());
         orders.setAddress(addressBook.getCityName() + addressBook.getDistrictName() + addressBook.getDetail());
         orders.setUserId(userId);
         orderMapper.insert(orders);
+
+        // 订单已生成后再原子锁券，失败时事务会回滚订单和后续写入。
+        if (userCouponId != null && userCouponMapper.tryReserve(userCouponId, userId, orders.getId()) != 1) {
+            throw new OrderBusinessException(MessageConstant.COUPON_OCCUPIED_BY_OTHER_ORDER);
+        }
 
         // 8. 插入订单明细
         List<OrderDetail> orderDetails = new ArrayList<>();
@@ -206,14 +180,7 @@ public class OrderServiceImpl implements OrderService {
         }
         orderDetailMapper.insertBath(orderDetails);
 
-        // 9. 将用户持有的优惠卷添加对应的订单id，标记为已占用
-        // ，但状态不改为已使用（支付后核销优惠卷时才改为已使用）
-        if (!userCoupons.isEmpty()) {
-            // 如果集合不为空，则批量更新
-            userCouponMapper.updateOrderIdBathByIds(orders.getId(), userCoupons);
-        }
-
-        // 10. 扣减库存
+        // 9. 扣减库存
         // 在下单时就扣减库存 主要是因为:
         // 用户选完一堆菜品，填完地址，跳到支付页，却发现菜品已售空，用户体验极差，极易流失。
         // 除此之外 这里的扣减库存只是预扣减(用户超时未支付后释放库存) 后厨拿到单子进行出餐是在用户支付后
@@ -222,14 +189,14 @@ public class OrderServiceImpl implements OrderService {
             // 使用数据库隐式行锁+条件判断，避免并发问题和超卖
             int rows = dishMapper.deductStockByDishId(cart.getDishId(), cart.getNumber());
             if (rows == 0) {
-                throw new BaseException(cart.getName() + "-" + MessageConstant.DISH_SOLD_OUT);
+                throw new OrderBusinessException(cart.getName() + "-" + MessageConstant.DISH_SOLD_OUT);
             }
         });
 
-        // 11. 清空购物车
+        // 10. 清空购物车
         shoppingCartMapper.deleteByUserId(userId);
 
-        // 12. 发送延迟消息
+        // 11. 发送延迟消息
         Message<String> message = MessageBuilder.withPayload(orders.getNumber() + "-" + orders.getId()).build();
         rocketMQTemplate.asyncSend("orderTopic", message, new SendCallback() {
             @Override
@@ -243,7 +210,7 @@ public class OrderServiceImpl implements OrderService {
             }
         }, 30000, 16);
 
-        // 13. 返回结果
+        // 12. 返回结果
         return OrderSubmitVO.builder()
                 .id(orders.getId())
                 .orderNumber(orders.getNumber())
@@ -271,17 +238,15 @@ public class OrderServiceImpl implements OrderService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void cancelOrderAndReleaseStock(Long orderId) {
-        // 1. 取消订单
-        Orders orders = Orders.builder()
-                .id(orderId)
-                .status(Orders.CANCELLED)
-                .cancelReason("系统自动取消")
-                .cancelTime(LocalDateTime.now())
-                .build();
-        orderMapper.update(orders);
+        // 1. 条件更新订单状态为已取消：仅待付款(1)订单可被取消，防止与支付并发导致已支付订单被取消。
+        if (orderMapper.cancelByIdIfStatus(orderId, Orders.PENDING_PAYMENT, "系统自动取消", LocalDateTime.now()) != 1) {
+            // 订单已支付或已取消，无需释放优惠券与库存；重复消息也不会重复处理（幂等）。
+            log.info("订单取消条件不满足，跳过处理，orderId={}", orderId);
+            return;
+        }
 
-        // 2. 移除对应订单占用的用户优惠卷的订单id，让对应的用户优惠卷不再被占用
-        userCouponMapper.removeOrderIdByOrderId(orderId);
+        // 2. 仅释放本订单仍处于锁定状态的优惠券，已过期的券保持已过期状态。
+        userCouponMapper.releaseReservation(orderId);
 
         // 3. 释放库存
         // 3.1. 查询订单明细
@@ -341,6 +306,10 @@ public class OrderServiceImpl implements OrderService {
         if (existOrder == null) {
             throw new OrderBusinessException(MessageConstant.ORDER_NOT_FOUND);
         }
+        // 校验订单归属，防止越权支付他人订单
+        if (!Objects.equals(existOrder.getUserId(), userId)) {
+            throw new OrderBusinessException(MessageConstant.ORDER_NOT_BELONG_TO_CURRENT_USER);
+        }
         if (Objects.equals(existOrder.getPayStatus(), Orders.PAID)) {
             throw new OrderBusinessException(MessageConstant.REPEAT_PAYMENT);
         }
@@ -364,18 +333,16 @@ public class OrderServiceImpl implements OrderService {
         OrderPaymentVO vo = jsonObject.toJavaObject(OrderPaymentVO.class);
         vo.setPackageStr(jsonObject.getString("package"));
 
-        // 修改订单状态为待接单和已支付
-        orderMapper.updateStatus(Orders.TO_BE_CONFIRMED, Orders.PAID, orderNumber);
+        // 修改订单状态为待接单和已支付（条件更新：仅待付款且未支付订单可被支付）
+        // 防止已取消订单被“复活”为已支付，以及支付与取消并发时状态被覆盖。
+        if (orderMapper.updateStatus(Orders.TO_BE_CONFIRMED, Orders.PAID, orderNumber) != 1) {
+            throw new OrderBusinessException(MessageConstant.ORDER_STATUS_CHANGED);
+        }
 
-        // 将订单中使用的优惠卷改为已使用
-        // 根据订单id和用户id查询订单使用的优惠卷
-        List<UserCoupon> couponUser = userCouponMapper.getByOrderIdAndUserId(existOrder.getId(), userId);
-        // 如果有使用优惠卷则将优惠卷改为已使用
-        if (couponUser != null && !couponUser.isEmpty()) {
-            // 获取优惠卷id集合
-            List<Long> couponUserIds = couponUser.stream().map(UserCoupon::getCouponId).toList();
-            // 批量修改优惠卷状态为已使用
-            userCouponMapper.updateBathStatus(couponUserIds, userId, UserCoupon.STATUS_USED);
+        // 仅核销当前订单锁定的那一张用户优惠券，避免按模板券 ID 误核销。
+        if (existOrder.getUserCouponId() != null
+                && userCouponMapper.markUsed(existOrder.getUserCouponId(), existOrder.getId()) != 1) {
+            throw new OrderBusinessException(MessageConstant.COUPON_OCCUPIED_BY_OTHER_ORDER);
         }
 
         // 对商家进行来单提醒
@@ -412,6 +379,11 @@ public class OrderServiceImpl implements OrderService {
             throw new OrderBusinessException(MessageConstant.ORDER_NOT_FOUND);
         }
 
+        //校验订单归属，防止越权取消他人订单
+        if (!Objects.equals(orderDB.getUserId(), BaseContext.getCurrentId())) {
+            throw new OrderBusinessException(MessageConstant.ORDER_NOT_BELONG_TO_CURRENT_USER);
+        }
+
         //检验订单状态 订单状态 1待付款 2待接单 3已接单 4派送中 5已完成 6已取消
         if (Objects.equals(orderDB.getStatus(), Orders.CONFIRMED)) {
             throw new OrderBusinessException(MessageConstant.ORDER_MERCHANT_ACCEPTED);
@@ -426,30 +398,17 @@ public class OrderServiceImpl implements OrderService {
             throw new OrderBusinessException(MessageConstant.ORDER_ALREADY_CANCELLED);
         }
 
-        Orders orders = new Orders();
-        orders.setId(orderDB.getId());
-
-        //订单处于待接单状态下取消，需要进行退款
-        if (orderDB.getStatus().equals(Orders.TO_BE_CONFIRMED)) {
-            //因为没有实现微信支付功能，所以也无法实现退款，暂时忽略
-//            String refund = weChatPayUtil.refund(
-//                    ordersDB.getNumber(),
-//                    ordersDB.getNumber(),
-//                    new BigDecimal(0.01),
-//                    new BigDecimal(0.01));
-//            log.info("申请退款：{}", refund);
-
-            //支付状态修改为退款
-            orders.setPayStatus(Orders.REFUND);
+        // 订单处于待接单(2)状态下取消，需要进行退款；由于未实现真实微信支付，退款仅将支付状态置为退款，暂不调用微信退款接口
+        // 若后续接入微信商户号，可在取消前调用 weChatPayUtil.refund 申请真实退款。
+        // 条件更新：仅当订单仍处于原状态时才取消，防止取消与支付/超时取消并发导致状态被覆盖。
+        Integer expectedStatus = orderDB.getStatus().equals(Orders.TO_BE_CONFIRMED)
+                ? Orders.TO_BE_CONFIRMED : Orders.PENDING_PAYMENT;
+        if (orderMapper.cancelByIdIfStatus(orderDB.getId(), expectedStatus, "用户取消", LocalDateTime.now()) != 1) {
+            throw new OrderBusinessException(MessageConstant.ORDER_STATUS_CHANGED);
         }
 
-        orders.setStatus(Orders.CANCELLED);
-        orders.setCancelReason("用户取消");
-        orders.setCancelTime(LocalDateTime.now());
-        orderMapper.update(orders);
-
-        // 移除对应订单占用的用户优惠卷的订单id，让对应的用户优惠卷不再被占用
-        userCouponMapper.removeOrderIdByOrderId(id);
+        // 仅释放本订单仍处于锁定状态的优惠券，已过期的券保持已过期状态。
+        userCouponMapper.releaseReservation(id);
 
         // 释放库存
         // 查询订单明细

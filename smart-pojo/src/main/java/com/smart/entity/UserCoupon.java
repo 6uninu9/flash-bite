@@ -77,7 +77,12 @@ public class UserCoupon implements Serializable {
     private Long orderId;
 
     /**
-     * 用户持有优惠券状态
+     * 订单锁券时间
+     */
+    private LocalDateTime reservedAt;
+
+    /**
+     * 用户持有优惠券状态 0可用 1已使用 2已过期 3已锁定
      */
     private Integer status;
 
@@ -87,9 +92,13 @@ public class UserCoupon implements Serializable {
     private LocalDateTime createTime;
 
     /**
-     * 0 未使用
+     * 0 可用
      */
-    public static final int STATUS_UNUSED = 0;
+    public static final int STATUS_AVAILABLE = 0;
+    /**
+     * 0 未使用，兼容已有调用，语义等同于可用
+     */
+    public static final int STATUS_UNUSED = STATUS_AVAILABLE;
     /**
      * 1 已使用
      */
@@ -98,6 +107,10 @@ public class UserCoupon implements Serializable {
      * 2 已过期
      */
     public static final int STATUS_EXPIRE = 2;
+    /**
+     * 3 已锁定
+     */
+    public static final int STATUS_RESERVED = 3;
 
     /**
      * 优惠券类型：满减

@@ -5,12 +5,14 @@
     <insert id="insert" useGeneratedKeys="true" keyProperty="id">
         insert into orders (number, status, user_id, address_book_id,
                             order_time, checkout_time, pay_method, pay_status,
-                            amount, remark, phone, address, consignee,
+                            amount, original_amount, discount_amount, user_coupon_id,
+                            remark, phone, address, consignee,
                             estimated_delivery_time, delivery_status,
                             pack_amount, tableware_number,
                             tableware_status)
         values (#{number}, #{status}, #{userId}, #{addressBookId}, #{orderTime},
                 #{checkoutTime}, #{payMethod}, #{payStatus}, #{amount},
+                #{originalAmount}, #{discountAmount}, #{userCouponId},
                 #{remark}, #{phone}, #{address}, #{consignee}, #{estimatedDeliveryTime},
                 #{deliveryStatus}, #{packAmount}, #{tablewareNumber}, #{tablewareStatus})
     </insert>
@@ -43,6 +45,15 @@
             </if>
             <if test="amount != null">
                 amount = #{amount},
+            </if>
+            <if test="originalAmount != null">
+                original_amount = #{originalAmount},
+            </if>
+            <if test="discountAmount != null">
+                discount_amount = #{discountAmount},
+            </if>
+            <if test="userCouponId != null">
+                user_coupon_id = #{userCouponId},
             </if>
             <if test="remark != null">
                 remark = #{remark},

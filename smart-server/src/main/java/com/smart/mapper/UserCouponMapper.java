@@ -1,26 +1,17 @@
 package com.smart.mapper;
 
 import com.smart.entity.UserCoupon;
-import org.apache.ibatis.annotations.*;
 import org.apache.ibatis.annotations.Insert;
 import org.apache.ibatis.annotations.Mapper;
-import org.apache.ibatis.annotations.Param;
+import org.apache.ibatis.annotations.Options;
 import org.apache.ibatis.annotations.Select;
+import org.apache.ibatis.annotations.Update;
 
 import java.time.LocalDateTime;
 import java.util.List;
 
 @Mapper
 public interface UserCouponMapper {
-
-    /**
-     * 批量更新优惠券状态
-     *
-     * @param couponIds 优惠券id列表
-     * @param userId    用户id
-     * @param status    状态
-     */
-    void updateBathStatus(List<Long> couponIds, Long userId, int status);
 
     /**
      * 插入用户优惠券
@@ -35,47 +26,6 @@ public interface UserCouponMapper {
     void insert(UserCoupon userCoupon);
 
     /**
-     * 根据订单id和用户id查询优惠券
-     *
-     * @param orderId 订单id
-     * @param userId  用户id
-     * @return 用户优惠券列表
-     */
-    @Select("select * from user_coupon where order_id = #{orderId} and user_id = #{userId}")
-    List<UserCoupon> getByOrderIdAndUserId(Long orderId, Long userId);
-
-    /**
-     * 根据用户id和优惠券id查询优惠券
-     *
-     * @param userId    用户id
-     * @param couponIds 优惠券id列表
-     * @return 用户优惠券列表
-     */
-    List<UserCoupon> getByUserIdAndCouponIds(Long userId, List<Long> couponIds);
-
-    /**
-     * 根据id列表批量修改用户优惠卷的订单id
-     *
-     * @param userCoupons 用户优惠券列表
-     */
-    void updateOrderIdBathByIds(@Param("orderId") Long orderId, @Param("userCoupons") List<UserCoupon> userCoupons);
-
-    /**
-     * 根据订单id删除用户优惠卷的订单id
-     *
-     * @param orderId 订单id
-     */
-    void removeOrderIdByOrderId(Long orderId);
-
-    /**
-     * 根据id列表查询用户优惠券
-     *
-     * @param userCouponIds 用户优惠券id列表
-     * @return 用户优惠券列表
-     */
-    List<UserCoupon> getByIds(List<Long> userCouponIds);
-
-    /**
      * 根据id查询用户优惠券
      *
      * @param userCouponId 用户优惠券id
@@ -85,14 +35,38 @@ public interface UserCouponMapper {
     UserCoupon getById(Long userCouponId);
 
     /**
-     * 修改用户优惠券状态
-     * 使用乐观锁status = 0，避免在修改时用户刚好使用优惠券，状态被覆盖的问题
+     * 原子锁定可用且未过期的用户优惠券。
      *
-     * @param userCouponId 用户优惠券id
-     * @param status       状态
+     * @return 受影响行数，1 表示锁券成功
      */
-    @Update("update user_coupon set status = #{status} where id = #{userCouponId} and status = 0")
-    void updateStatusById(Long userCouponId, Integer status);
+    @Update("UPDATE user_coupon SET status = 3, order_id = #{orderId}, reserved_at = NOW() " +
+            "WHERE id = #{userCouponId} AND user_id = #{userId} AND status = 0 " +
+            "AND order_id IS NULL AND expire_time > NOW()")
+    int tryReserve(Long userCouponId, Long userId, Long orderId);
+
+    /**
+     * 将当前订单锁定的用户优惠券核销。
+     *
+     * @return 受影响行数，1 表示核销成功
+     */
+    @Update("UPDATE user_coupon SET status = 1, use_time = NOW() " +
+            "WHERE id = #{userCouponId} AND order_id = #{orderId} AND status = 3")
+    int markUsed(Long userCouponId, Long orderId);
+
+    /**
+     * 释放当前订单锁定的用户优惠券；已过期的券进入已过期状态。
+     */
+    @Update("UPDATE user_coupon SET status = CASE WHEN expire_time <= NOW() THEN 2 ELSE 0 END, " +
+            "order_id = NULL, reserved_at = NULL " +
+            "WHERE order_id = #{orderId} AND status = 3")
+    void releaseReservation(Long orderId);
+
+    /**
+     * 将可用或已锁定且到期的用户优惠券置为已过期。
+     */
+    @Update("UPDATE user_coupon SET status = 2, order_id = NULL, reserved_at = NULL " +
+            "WHERE id = #{userCouponId} AND status IN (0, 3) AND expire_time <= NOW()")
+    void markExpired(Long userCouponId);
 
     /**
      * 根据用户id和开始时间查询用户优惠券

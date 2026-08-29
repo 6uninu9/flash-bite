@@ -77,8 +77,8 @@ public class CouponExpireListener implements RocketMQListener<String> {
                 log.error("用户优惠券已过期，用户优惠券ID：{}", userCouponId);
                 return;
             }
-            // 8. 修改优惠券状态
-            userCouponMapper.updateStatusById(userCouponId, UserCoupon.STATUS_EXPIRE);
+            // 8. 修改可用或已锁定的优惠券状态；锁定券到期后不能恢复为可用。
+            userCouponMapper.markExpired(userCouponId);
         } catch (Exception e) {
             // 报错 则删除幂等标识
             stringRedisTemplate.delete(IDENTITY_KEY + userCouponId);

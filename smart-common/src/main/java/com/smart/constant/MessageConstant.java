@@ -39,4 +39,6 @@ public class MessageConstant {
     public static final String ORDER_DELIVERING = "订单派送中";
     public static final String ORDER_COMPLETED = "订单已完成";
     public static final String ORDER_ALREADY_CANCELLED = "订单已取消";
+    public static final String ORDER_STATUS_CHANGED = "订单状态已变更，请刷新后重试";
+    public static final String ORDER_NOT_BELONG_TO_CURRENT_USER = "订单不属于当前用户";
 }

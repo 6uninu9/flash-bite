@@ -217,8 +217,8 @@ public class CouponServiceImpl implements CouponService, BloomFilterDataService 
         long deliverTimestamp = Timestamp.valueOf(expireTime).getTime();
 //        rocketMsg.setDeliverTimeMs(deliverTimestamp);
 
-        // 测试环境：1秒后触发，注释正式环境配置后启用
-         rocketMsg.setDeliverTimeMs(System.currentTimeMillis() + 1000L);
+        // 测试环境：3秒后触发，注释正式环境配置后启用
+         rocketMsg.setDeliverTimeMs(System.currentTimeMillis() + 3000L);
 
         // 5. 发送延时消息
         try {
