@@ -8,6 +8,7 @@ import com.smart.service.UserCouponService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -41,6 +42,19 @@ public class CouponController {
     public Result<String> couponSeckkill(Long couponId) {
         couponService.seckill(couponId);
         return Result.success("抢购成功，请稍后查看抢购结果...");
+    }
+
+    /**
+     * 领取普通优惠券
+     *
+     * @param id 优惠券ID
+     * @return 领取结果
+     */
+    @PostMapping("/{id}/claim")
+    @Operation(summary = "领取普通优惠券")
+    public Result<String> claim(@PathVariable Long id) {
+        couponService.claimNormal(id);
+        return Result.success();
     }
 
     @GetMapping("/seckill")

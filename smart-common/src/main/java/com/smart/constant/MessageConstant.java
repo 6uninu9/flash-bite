@@ -35,6 +35,8 @@ public class MessageConstant {
     public static final String ACTIVITY_NOT_EXIST = "活动不存在";
     public static final String ACTIVITY_NOT_START = "活动未开始";
     public static final String ACTIVITY_ENDED = "活动已结束";
+    public static final String COUPON_PARAM_ERROR = "优惠券参数错误";
+    public static final String COUPON_STATUS_CHANGED = "优惠券活动状态已变更，请刷新后重试";
     public static final String ORDER_MERCHANT_ACCEPTED = "商家已接单";
     public static final String ORDER_DELIVERING = "订单派送中";
     public static final String ORDER_COMPLETED = "订单已完成";

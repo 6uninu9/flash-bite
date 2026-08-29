@@ -23,7 +23,7 @@ public interface UserCouponMapper {
             "VALUES " +
             "(#{userId}, #{couponId}, #{couponName}, #{couponType}, #{thresholdAmount}, #{discountAmount}, #{getTime}, #{expireTime}, #{isSeckill}, #{status}, NOW())")
     @Options(useGeneratedKeys = true, keyColumn = "id", keyProperty = "id")
-    void insert(UserCoupon userCoupon);
+    int insert(UserCoupon userCoupon);
 
     /**
      * 根据id查询用户优惠券
@@ -77,7 +77,7 @@ public interface UserCouponMapper {
      */
     @Select("SELECT " +
             "  id, user_id, coupon_id, coupon_name, coupon_type, threshold_amount, discount_amount, " +
-            "  get_time, expire_time, is_seckill, use_time, order_id, status, create_time " +
+            "  get_time, expire_time, is_seckill, use_time, order_id, reserved_at, status, create_time " +
             "FROM user_coupon " +
             "WHERE user_id = #{userId} AND get_time >= #{startTime} " +
             "ORDER BY get_time DESC")

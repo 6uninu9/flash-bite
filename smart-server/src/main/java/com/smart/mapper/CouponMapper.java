@@ -1,6 +1,8 @@
 package com.smart.mapper;
 
+import com.smart.dto.CouponPageQueryDTO;
 import com.smart.entity.Coupon;
+import org.apache.ibatis.annotations.Insert;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.annotations.Update;
@@ -60,4 +62,46 @@ public interface CouponMapper {
             "status, create_user, update_user, create_time, update_time, is_seckill " +
             "FROM coupon WHERE is_seckill = 1 AND status = 1 ORDER BY create_time DESC")
     List<Coupon> listSeckillCoupons();
+
+    /**
+     * 新增优惠券模板
+     *
+     * @param coupon 优惠券模板
+     * @return 受影响行数
+     */
+    int insert(Coupon coupon);
+
+    /**
+     * 将未开始且处于领取时间窗内的活动发布为进行中
+     *
+     * @param couponId 优惠券ID
+     * @param updateUser 操作员工ID
+     * @return 受影响行数
+     */
+    int publish(Long couponId, Long updateUser);
+
+    /**
+     * 手动结束进行中的活动
+     *
+     * @param couponId 优惠券ID
+     * @param updateUser 操作员工ID
+     * @return 受影响行数
+     */
+    int endActivity(Long couponId, Long updateUser);
+
+    /**
+     * 原子扣减普通券库存，只允许领取进行中的普通券
+     *
+     * @param couponId 优惠券ID
+     * @return 受影响行数
+     */
+    int deductNormalClaimStock(Long couponId);
+
+    /**
+     * 分页查询优惠券活动
+     *
+     * @param couponPageQueryDTO 分页查询条件
+     * @return 优惠券列表
+     */
+    List<Coupon> queryPage(CouponPageQueryDTO couponPageQueryDTO);
 }

@@ -24,6 +24,8 @@ import org.springframework.messaging.Message;
 import org.springframework.messaging.support.MessageBuilder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.util.StringUtils;
 
 import java.math.BigDecimal;
@@ -196,19 +198,8 @@ public class OrderServiceImpl implements OrderService {
         // 10. 清空购物车
         shoppingCartMapper.deleteByUserId(userId);
 
-        // 11. 发送延迟消息
-        Message<String> message = MessageBuilder.withPayload(orders.getNumber() + "-" + orders.getId()).build();
-        rocketMQTemplate.asyncSend("orderTopic", message, new SendCallback() {
-            @Override
-            public void onSuccess(SendResult sendResult) {
-                log.info("发送取消订单延迟消息成功");
-            }
-
-            @Override
-            public void onException(Throwable throwable) {
-                log.error("发送取消订单延迟消息失败");
-            }
-        }, 30000, 16);
+        // 11. 事务提交后再发送订单超时取消延迟消息，避免订单回滚后消息仍被投递（无效消费）。
+        sendCancelOrderMessageAfterCommit(orders.getNumber(), orders.getId());
 
         // 12. 返回结果
         return OrderSubmitVO.builder()
@@ -450,5 +441,41 @@ public class OrderServiceImpl implements OrderService {
         map.put("orderId", Math.toIntExact(orderId));
         map.put("content", "订单号:" + ordersDB.getNumber());
         WebSocketServer.sendToUser(String.valueOf(merchantId), JSON.toJSONString(map));
+    }
+
+    /**
+     * 在当前事务提交后发送订单超时取消延迟消息
+     *
+     * @param orderNumber 订单号
+     * @param orderId     订单id
+     */
+    private void sendCancelOrderMessageAfterCommit(String orderNumber, Long orderId) {
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                sendCancelOrderMessage(orderNumber, orderId);
+            }
+        });
+    }
+
+    /**
+     * 发送订单超时取消延迟消息（延迟30秒投递，延迟级别16）
+     *
+     * @param orderNumber 订单号
+     * @param orderId     订单id
+     */
+    private void sendCancelOrderMessage(String orderNumber, Long orderId) {
+        Message<String> message = MessageBuilder.withPayload(orderNumber + "-" + orderId).build();
+        rocketMQTemplate.asyncSend("orderTopic", message, new SendCallback() {
+            @Override
+            public void onSuccess(SendResult sendResult) {
+                log.info("发送取消订单延迟消息成功");
+            }
+
+            @Override
+            public void onException(Throwable throwable) {
+                log.error("发送取消订单延迟消息失败");
+            }
+        }, 30000, 16);
     }
 }

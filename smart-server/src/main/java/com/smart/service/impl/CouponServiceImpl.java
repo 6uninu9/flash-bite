@@ -1,14 +1,19 @@
 package com.smart.service.impl;
 
+import com.github.pagehelper.Page;
+import com.github.pagehelper.PageHelper;
 import com.smart.constant.CacheKeyConstants;
 import com.smart.constant.MessageConstant;
 import com.smart.context.BaseContext;
+import com.smart.dto.CouponCreateDTO;
+import com.smart.dto.CouponPageQueryDTO;
 import com.smart.entity.Coupon;
 import com.smart.entity.UserCoupon;
 import com.smart.exception.BaseException;
 import com.smart.exception.SystemException;
 import com.smart.mapper.CouponMapper;
 import com.smart.mapper.UserCouponMapper;
+import com.smart.result.PageResult;
 import com.smart.service.BloomCacheService;
 import com.smart.service.BloomFilterDataService;
 import com.smart.service.CouponService;
@@ -20,6 +25,7 @@ import org.apache.rocketmq.remoting.exception.RemotingException;
 import org.apache.rocketmq.spring.core.RocketMQTemplate;
 import org.redisson.api.RBloomFilter;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.beans.BeanUtils;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.dao.DataAccessException;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -27,13 +33,17 @@ import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.apache.rocketmq.common.message.Message;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.nio.charset.StandardCharsets;
+import java.math.BigDecimal;
 import java.sql.Timestamp;
 import java.time.LocalDateTime;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
+import java.util.Objects;
 
 @Slf4j
 @Service
@@ -204,38 +214,12 @@ public class CouponServiceImpl implements CouponService, BloomFilterDataService 
                 .expireTime(expireTime)
                 .status(UserCoupon.STATUS_UNUSED)
                 .build();
-        userCouponMapper.insert(userCoupon);
-
-        // 4. 创建自动修改过期优惠卷状态的延时消息
-        String msg = userCoupon.getId().toString();
-        Message rocketMsg = new Message(
-                "couponTopic",
-                msg.getBytes(StandardCharsets.UTF_8)
-        );
-        // 开源版 RocketMQ 5.X的自定义延时时间默认最大为3天，可以通过修改配置文件修改时间
-        // 正式环境：直接使用过期时间戳作为投递时间，逻辑更精准直观
-        long deliverTimestamp = Timestamp.valueOf(expireTime).getTime();
-//        rocketMsg.setDeliverTimeMs(deliverTimestamp);
-
-        // 测试环境：3秒后触发，注释正式环境配置后启用
-         rocketMsg.setDeliverTimeMs(System.currentTimeMillis() + 3000L);
-
-        // 5. 发送延时消息
-        try {
-            rocketMQTemplate.getProducer().send(rocketMsg, new SendCallback() {
-                @Override
-                public void onSuccess(SendResult sendResult) {
-                    log.info("延时消息发送成功：{}", sendResult);
-                }
-
-                @Override
-                public void onException(Throwable throwable) {
-                    log.error("延时消息发送失败：{}", throwable.getMessage());
-                }
-            });
-        } catch (MQClientException | RemotingException | InterruptedException e) {
-            throw new RuntimeException(e);
+        if (userCouponMapper.insert(userCoupon) != 1) {
+            throw new BaseException(MessageConstant.USER_ALREADY_RECEIVED);
         }
+
+        // 4. 事务提交后发送过期消息，避免数据库回滚时仍投递消息。
+        sendCouponExpireMessageAfterCommit(userCoupon.getId(), expireTime);
     }
 
     /**
@@ -249,6 +233,102 @@ public class CouponServiceImpl implements CouponService, BloomFilterDataService 
     }
 
     /**
+     * 创建优惠券模板
+     *
+     * @param couponCreateDTO 创建优惠券参数
+     */
+    @Override
+    public void create(CouponCreateDTO couponCreateDTO) {
+        validateCouponCreateParam(couponCreateDTO);
+
+        Coupon coupon = new Coupon();
+        BeanUtils.copyProperties(couponCreateDTO, coupon);
+        coupon.setStatus(Coupon.STATUS_NOT_START);
+        coupon.setSurplusStock(couponCreateDTO.getTotalStock());
+        coupon.setCreateUser(BaseContext.getCurrentId());
+        coupon.setUpdateUser(BaseContext.getCurrentId());
+        couponMapper.insert(coupon);
+    }
+
+    /**
+     * 发布优惠券活动
+     *
+     * @param couponId 优惠券ID
+     */
+    @Override
+    public void publish(Long couponId) {
+        if (couponMapper.publish(couponId, BaseContext.getCurrentId()) != 1) {
+            throw new BaseException(MessageConstant.COUPON_STATUS_CHANGED);
+        }
+    }
+
+    /**
+     * 手动结束优惠券活动
+     *
+     * @param couponId 优惠券ID
+     */
+    @Override
+    public void end(Long couponId) {
+        if (couponMapper.endActivity(couponId, BaseContext.getCurrentId()) != 1) {
+            throw new BaseException(MessageConstant.COUPON_STATUS_CHANGED);
+        }
+    }
+
+    /**
+     * 分页查询优惠券活动
+     *
+     * @param couponPageQueryDTO 分页查询条件
+     * @return 优惠券分页结果
+     */
+    @Override
+    public PageResult<Coupon> queryPage(CouponPageQueryDTO couponPageQueryDTO) {
+        try (Page<Coupon> page = PageHelper.startPage(couponPageQueryDTO.getPage(), couponPageQueryDTO.getPageSize())) {
+            page.doSelectPage(() -> couponMapper.queryPage(couponPageQueryDTO));
+            return new PageResult<>(page.getTotal(), page.getResult());
+        }
+    }
+
+    /**
+     * 领取普通优惠券
+     *
+     * @param couponId 优惠券ID
+     */
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void claimNormal(Long couponId) {
+        Coupon coupon = couponMapper.getById(couponId);
+        if (coupon == null || !Objects.equals(coupon.getIsSeckill(), Coupon.IS_SECKILL_NO)) {
+            throw new BaseException(MessageConstant.COUPON_NOT_EXIST);
+        }
+        if (!Objects.equals(coupon.getStatus(), Coupon.STATUS_RUNNING)) {
+            throw new BaseException(MessageConstant.COUPON_STATUS_CHANGED);
+        }
+        LocalDateTime now = LocalDateTime.now();
+        if (now.isBefore(coupon.getStartTime())) {
+            throw new BaseException(MessageConstant.ACTIVITY_NOT_START);
+        }
+        if (!now.isBefore(coupon.getEndTime())) {
+            throw new BaseException(MessageConstant.ACTIVITY_ENDED);
+        }
+        if (coupon.getSurplusStock() <= 0) {
+            throw new BaseException(MessageConstant.COUPON_STOCK_NOT_ENOUGH);
+        }
+
+        // 先条件扣减库存，再插入唯一用户券记录；任一步失败都会整体回滚。
+        if (couponMapper.deductNormalClaimStock(couponId) != 1) {
+            throw new BaseException(MessageConstant.COUPON_STATUS_CHANGED);
+        }
+
+        UserCoupon userCoupon = buildUserCoupon(coupon, BaseContext.getCurrentId());
+        if (userCouponMapper.insert(userCoupon) != 1) {
+            throw new BaseException(MessageConstant.USER_ALREADY_RECEIVED);
+        }
+
+        // 事务提交后发送真实到期时间的延时消息，避免回滚数据仍产生过期消费。
+        sendCouponExpireMessageAfterCommit(userCoupon.getId(), userCoupon.getExpireTime());
+    }
+
+    /**
      * 获取所有优惠券ID
      *
      * @return 所有优惠券ID
@@ -256,5 +336,88 @@ public class CouponServiceImpl implements CouponService, BloomFilterDataService 
     @Override
     public List<String> getKey() {
         return couponMapper.listAllIds();
+    }
+
+    /**
+     * 校验创建优惠券的业务参数
+     *
+     * @param couponCreateDTO 创建优惠券参数
+     */
+    private void validateCouponCreateParam(CouponCreateDTO couponCreateDTO) {
+        if (!couponCreateDTO.getStartTime().isBefore(couponCreateDTO.getEndTime())) {
+            throw new BaseException(MessageConstant.COUPON_PARAM_ERROR);
+        }
+        if (Objects.equals(couponCreateDTO.getCouponType(), Coupon.TYPE_FULL_REDUCE)
+                && couponCreateDTO.getThresholdAmount().compareTo(BigDecimal.ZERO) <= 0) {
+            throw new BaseException(MessageConstant.COUPON_PARAM_ERROR);
+        }
+        if (Objects.equals(couponCreateDTO.getCouponType(), Coupon.TYPE_DIRECT_REDUCE)
+                && couponCreateDTO.getThresholdAmount().compareTo(BigDecimal.ZERO) != 0) {
+            throw new BaseException(MessageConstant.COUPON_PARAM_ERROR);
+        }
+    }
+
+    /**
+     * 根据优惠券模板生成用户券快照
+     *
+     * @param coupon 优惠券模板
+     * @param userId 用户ID
+     * @return 用户优惠券快照
+     */
+    private UserCoupon buildUserCoupon(Coupon coupon, Long userId) {
+        LocalDateTime getTime = LocalDateTime.now();
+        return UserCoupon.builder()
+                .userId(userId)
+                .couponId(coupon.getId())
+                .couponName(coupon.getCouponName())
+                .couponType(coupon.getCouponType())
+                .thresholdAmount(coupon.getThresholdAmount())
+                .discountAmount(coupon.getDiscountAmount())
+                .isSeckill(coupon.getIsSeckill())
+                .getTime(getTime)
+                .expireTime(getTime.plusDays(coupon.getValidDays()))
+                .status(UserCoupon.STATUS_AVAILABLE)
+                .build();
+    }
+
+    /**
+     * 在当前事务提交后发送用户券过期延时消息
+     *
+     * @param userCouponId 用户优惠券ID
+     * @param expireTime 用户优惠券过期时间
+     */
+    private void sendCouponExpireMessageAfterCommit(Long userCouponId, LocalDateTime expireTime) {
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                sendCouponExpireMessage(userCouponId, expireTime);
+            }
+        });
+    }
+
+    /**
+     * 发送用户券过期延时消息
+     *
+     * @param userCouponId 用户优惠券ID
+     * @param expireTime 用户优惠券过期时间
+     */
+    private void sendCouponExpireMessage(Long userCouponId, LocalDateTime expireTime) {
+        Message rocketMsg = new Message("couponTopic", String.valueOf(userCouponId).getBytes(StandardCharsets.UTF_8));
+        rocketMsg.setDeliverTimeMs(Timestamp.valueOf(expireTime).getTime());
+        try {
+            rocketMQTemplate.getProducer().send(rocketMsg, new SendCallback() {
+                @Override
+                public void onSuccess(SendResult sendResult) {
+                    log.info("优惠券过期延时消息发送成功，用户优惠券ID：{}", userCouponId);
+                }
+
+                @Override
+                public void onException(Throwable throwable) {
+                    log.error("优惠券过期延时消息发送失败，用户优惠券ID：{}", userCouponId, throwable);
+                }
+            });
+        } catch (MQClientException | RemotingException | InterruptedException e) {
+            log.error("发送优惠券过期延时消息异常，用户优惠券ID：{}", userCouponId, e);
+        }
     }
 }
