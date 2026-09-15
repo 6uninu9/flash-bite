@@ -12,6 +12,7 @@ import com.smart.entity.*;
 import com.smart.exception.*;
 import com.smart.mapper.*;
 import com.smart.service.OrderService;
+import com.smart.service.HotDishRankingService;
 import com.smart.vo.OrderPaymentVO;
 import com.smart.vo.OrderSubmitVO;
 import com.smart.websocket.WebSocketServer;
@@ -50,7 +51,9 @@ public class OrderServiceImpl implements OrderService {
 
     private final UserCouponMapper userCouponMapper;
 
-    public OrderServiceImpl(OrderMapper orderMapper, OrderDetailMapper orderDetailMapper, AddressBookMapper addressBookMapper, ShoppingCartMapper shoppingCartMapper, RocketMQTemplate rocketMQTemplate, DishMapper dishMapper, UserCouponMapper userCouponMapper) {
+    private final HotDishRankingService hotDishRankingService;
+
+    public OrderServiceImpl(OrderMapper orderMapper, OrderDetailMapper orderDetailMapper, AddressBookMapper addressBookMapper, ShoppingCartMapper shoppingCartMapper, RocketMQTemplate rocketMQTemplate, DishMapper dishMapper, UserCouponMapper userCouponMapper, HotDishRankingService hotDishRankingService) {
         this.orderMapper = orderMapper;
         this.orderDetailMapper = orderDetailMapper;
         this.addressBookMapper = addressBookMapper;
@@ -58,6 +61,7 @@ public class OrderServiceImpl implements OrderService {
         this.rocketMQTemplate = rocketMQTemplate;
         this.dishMapper = dishMapper;
         this.userCouponMapper = userCouponMapper;
+        this.hotDishRankingService = hotDishRankingService;
     }
 
 
@@ -200,6 +204,9 @@ public class OrderServiceImpl implements OrderService {
 
         // 11. 事务提交后再发送订单超时取消延迟消息，避免订单回滚后消息仍被投递（无效消费）。
         sendCancelOrderMessageAfterCommit(orders.getNumber(), orders.getId());
+
+        // 订单提交成功后再记录下单热度，事务回滚不会污染排行榜。
+        recordHotDishOrderAfterCommit(orders.getId(), orderDetails);
 
         // 12. 返回结果
         return OrderSubmitVO.builder()
@@ -477,5 +484,25 @@ public class OrderServiceImpl implements OrderService {
                 log.error("发送取消订单延迟消息失败");
             }
         }, 30000, 16);
+    }
+
+    /**
+     * 在订单事务提交后记录下单热度
+     *
+     * @param orderId 订单ID
+     * @param orderDetails 订单明细
+     */
+    private void recordHotDishOrderAfterCommit(Long orderId, List<OrderDetail> orderDetails) {
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                try {
+                    hotDishRankingService.recordOrder(orderId, orderDetails);
+                } catch (Exception e) {
+                    // 热销榜属于旁路统计，任何异常都不能改变已经提交的订单结果。
+                    log.error("记录订单热销榜事件失败，orderId={}", orderId, e);
+                }
+            }
+        });
     }
 }

@@ -3,6 +3,8 @@ package com.smart.service;
 import com.smart.dto.DishDTO;
 import com.smart.dto.DishPageQueryDTO;
 import com.smart.result.PageResult;
+import com.smart.enumeration.HotRankPeriod;
+import com.smart.vo.HotDishRankVO;
 import com.smart.vo.DishVO;
 
 import java.util.List;
@@ -51,4 +53,22 @@ public interface DishService {
      * @return 菜品数据
      */
     DishVO getByIdWithFlavor(Long id);
+
+    /**
+     * 查询用户端菜品详情并记录浏览事件
+     *
+     * @param id 菜品ID
+     * @return 菜品详情
+     */
+    DishVO getUserDishDetail(Long id);
+
+    /**
+     * 查询全店热销榜
+     */
+    List<HotDishRankVO> getShopHotRank(HotRankPeriod period, int limit);
+
+    /**
+     * 查询分类热销榜
+     */
+    List<HotDishRankVO> getCategoryHotRank(Long categoryId, HotRankPeriod period, int limit);
 }

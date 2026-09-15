@@ -64,4 +64,12 @@ public interface DishMapper {
      * @return 菜品分页结果
      */
     List<DishVO> queryPage(DishPageQueryDTO dishPageQueryDTO);
+
+    /**
+     * 根据ID集合批量查询菜品
+     *
+     * @param ids 菜品ID集合
+     * @return 菜品列表
+     */
+    List<Dish> selectBatchByIds(List<Long> ids);
 }

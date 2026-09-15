@@ -34,4 +34,29 @@ public class CacheKeyConstants {
      * 秒杀优惠券状态Key前缀
      */
     public static final String SECKILL_COUPON_STATUS_KEY = "seckill:coupon:status:";
+
+    /**
+     * 全店菜品热销榜Key前缀
+     */
+    public static final String HOT_DISH_SHOP_RANK_KEY_PREFIX = "rank:dish:shop:";
+
+    /**
+     * 分类菜品热销榜Key前缀
+     */
+    public static final String HOT_DISH_CATEGORY_RANK_KEY_PREFIX = "rank:dish:category:";
+
+    /**
+     * 菜品热销榜事件幂等Key前缀
+     */
+    public static final String HOT_DISH_EVENT_DEDUP_KEY_PREFIX = "rank:dish:event:";
+
+    /**
+     * 菜品热销榜临时聚合Key前缀
+     */
+    public static final String HOT_DISH_TEMP_RANK_KEY_PREFIX = "rank:dish:temp:";
+
+    /**
+     * 菜品热销榜运营权重配置Key
+     */
+    public static final String HOT_DISH_WEIGHT_CONFIG_KEY = "rank:dish:config:weights";
 }

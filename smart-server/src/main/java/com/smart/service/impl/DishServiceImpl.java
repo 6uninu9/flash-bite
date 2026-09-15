@@ -8,6 +8,7 @@ import com.smart.constant.CacheTimeConstant;
 import com.smart.constant.CacheKeyConstants;
 import com.smart.constant.MessageConstant;
 import com.smart.constant.StatusConstant;
+import com.smart.context.BaseContext;
 import com.smart.data.RedisData;
 import com.smart.dto.DishDTO;
 import com.smart.dto.DishPageQueryDTO;
@@ -15,12 +16,16 @@ import com.smart.entity.Dish;
 import com.smart.entity.DishFlavor;
 import com.smart.exception.BaseException;
 import com.smart.exception.DeletionNotAllowedException;
+import com.smart.exception.DishBusinessException;
 import com.smart.mapper.DishFlavorMapper;
 import com.smart.mapper.DishMapper;
 import com.smart.result.PageResult;
 import com.smart.service.BloomCacheService;
 import com.smart.service.DishService;
+import com.smart.service.HotDishRankingService;
+import com.smart.enumeration.HotRankPeriod;
 import com.smart.task.HotCategoryAutoDetectTask;
+import com.smart.vo.HotDishRankVO;
 import com.smart.vo.DishVO;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.rocketmq.client.producer.SendCallback;
@@ -72,6 +77,8 @@ public class DishServiceImpl implements DishService {
 
     private final HotCategoryAutoDetectTask hotCategoryAutoDetectTask;
 
+    private final HotDishRankingService hotDishRankingService;
+
     // 注入 Caffeine 本地缓存
     @Qualifier("hotDishLocalCache")
     private final Cache<String, List<DishVO>> hotDishLocalCache;
@@ -81,7 +88,7 @@ public class DishServiceImpl implements DishService {
 
     private static final String LOCK_CATEGORY_DISH_REBUILD = "lock:category:dish:rebuild";
 
-    public DishServiceImpl(DishMapper dishMapper, DishFlavorMapper dishFlavorMapper, StringRedisTemplate stringRedisTemplate, RedissonClient redissonClient, RBloomFilter<String> categoryBloomFilter, BloomCacheService bloomCacheService, RocketMQTemplate rocketMQTemplate, Executor virtualTaskExecutor, HotCategoryAutoDetectTask hotCategoryAutoDetectTask, Cache<String, List<DishVO>> hotDishLocalCache) {
+    public DishServiceImpl(DishMapper dishMapper, DishFlavorMapper dishFlavorMapper, StringRedisTemplate stringRedisTemplate, RedissonClient redissonClient, RBloomFilter<String> categoryBloomFilter, BloomCacheService bloomCacheService, RocketMQTemplate rocketMQTemplate, Executor virtualTaskExecutor, HotCategoryAutoDetectTask hotCategoryAutoDetectTask, Cache<String, List<DishVO>> hotDishLocalCache, HotDishRankingService hotDishRankingService) {
         this.dishMapper = dishMapper;
         this.dishFlavorMapper = dishFlavorMapper;
         this.stringRedisTemplate = stringRedisTemplate;
@@ -92,6 +99,7 @@ public class DishServiceImpl implements DishService {
         this.virtualTaskExecutor = virtualTaskExecutor;
         this.hotCategoryAutoDetectTask = hotCategoryAutoDetectTask;
         this.hotDishLocalCache = hotDishLocalCache;
+        this.hotDishRankingService = hotDishRankingService;
     }
 
     /**
@@ -286,6 +294,38 @@ public class DishServiceImpl implements DishService {
         dishVO.setFlavors(dishFlavors);
 
         return dishVO;
+    }
+
+    /**
+     * 查询用户端菜品详情并记录浏览事件
+     *
+     * @param id 菜品ID
+     * @return 菜品详情
+     */
+    @Override
+    public DishVO getUserDishDetail(Long id) {
+        Dish dish = dishMapper.getById(id);
+        if (dish == null || Objects.equals(dish.getStatus(), Dish.DISABLE)) {
+            throw new DishBusinessException(MessageConstant.DISH_IS_NOT_AVAILABLE);
+        }
+
+        DishVO dishVO = new DishVO();
+        BeanUtils.copyProperties(dish, dishVO);
+        dishVO.setFlavors(dishFlavorMapper.getByDishId(id));
+
+        // 详情成功返回后记录浏览；服务内部已隔离Redis异常，不影响菜品查询。
+        hotDishRankingService.recordView(dish, BaseContext.getCurrentId());
+        return dishVO;
+    }
+
+    @Override
+    public List<HotDishRankVO> getShopHotRank(HotRankPeriod period, int limit) {
+        return hotDishRankingService.topShop(period, limit);
+    }
+
+    @Override
+    public List<HotDishRankVO> getCategoryHotRank(Long categoryId, HotRankPeriod period, int limit) {
+        return hotDishRankingService.topCategory(categoryId, period, limit);
     }
 
     /**

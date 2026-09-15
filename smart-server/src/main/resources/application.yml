@@ -67,6 +67,15 @@ logging:
         controller: info
 
 smart:
+  hot-rank:
+    view-weight: 1
+    cart-weight: 3
+    order-weight: 10
+    slice-seconds: 300
+    window-slices: 12
+    view-dedup-seconds: 300
+    max-limit: 50
+    config-cache-seconds: 10
   jwt:
     admin-secret-key-origin: "${random.value}"
     admin-ttl: 7200000

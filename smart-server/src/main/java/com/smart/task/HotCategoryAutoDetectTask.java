@@ -67,6 +67,7 @@ public class HotCategoryAutoDetectTask {
         Set<ZSetOperations.TypedTuple<String>> allScores = null;
 
         try {
+            // 从Redis获取所有时间片的访问量数据
             allScores = fetchScoresFromRedis();
         }  catch (RedisConnectionFailureException | RedisTimeoutException | QueryTimeoutException e) {
             // 明确的基础设施/连接异常，应该降级
@@ -148,8 +149,11 @@ public class HotCategoryAutoDetectTask {
         return localScores;
     }
 
+    /**
+     * 从Redis获取所有时间片的访问量数据
+     */
     private Set<ZSetOperations.TypedTuple<String>> fetchScoresFromRedis() {
-// 1. 获取上一个完整时间片的序号
+        // 1. 获取上一个完整时间片的序号
         long nowSlice = System.currentTimeMillis() / 1000 / TIME_SLICE_SECONDS; // 当前时间片的序号
         long lastCompleteSlice = nowSlice - 1;   // 上一个完整时间片的序号
 
@@ -241,7 +245,9 @@ public class HotCategoryAutoDetectTask {
     }
 
     /**
-     * 访问计数时，确保时间片Key有过期时间
+     * 增加分类访问计数
+     *
+     * @param categoryId 分类id
      */
     public void incrementCategoryAccess(String categoryId) {
         try {

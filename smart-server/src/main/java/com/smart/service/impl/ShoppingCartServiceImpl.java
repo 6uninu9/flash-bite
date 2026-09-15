@@ -1,11 +1,14 @@
 package com.smart.service.impl;
 
 import com.smart.context.BaseContext;
+import com.smart.constant.MessageConstant;
 import com.smart.dto.ShoppingCartDTO;
 import com.smart.entity.Dish;
 import com.smart.entity.ShoppingCart;
 import com.smart.mapper.DishMapper;
 import com.smart.mapper.ShoppingCartMapper;
+import com.smart.exception.DishBusinessException;
+import com.smart.service.HotDishRankingService;
 import com.smart.service.ShoppingCartService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.BeanUtils;
@@ -23,9 +26,13 @@ public class ShoppingCartServiceImpl implements ShoppingCartService {
 
     private final DishMapper dishMapper;
 
-    public ShoppingCartServiceImpl(ShoppingCartMapper shoppingCartMapper, DishMapper dishMapper) {
+    private final HotDishRankingService hotDishRankingService;
+
+    public ShoppingCartServiceImpl(ShoppingCartMapper shoppingCartMapper, DishMapper dishMapper,
+                                   HotDishRankingService hotDishRankingService) {
         this.shoppingCartMapper = shoppingCartMapper;
         this.dishMapper = dishMapper;
+        this.hotDishRankingService = hotDishRankingService;
     }
 
     /**
@@ -41,6 +48,11 @@ public class ShoppingCartServiceImpl implements ShoppingCartService {
         BeanUtils.copyProperties(shoppingCartDTO, shoppingCart);
         // 2.获取用户id
         shoppingCart.setUserId(BaseContext.getCurrentId());
+        Long dishId = shoppingCartDTO.getDishId();
+        Dish dish = dishMapper.getById(dishId);
+        if (dish == null || Dish.DISABLE.equals(dish.getStatus())) {
+            throw new DishBusinessException(MessageConstant.DISH_IS_NOT_AVAILABLE);
+        }
         // 3.获得上述查询条件后，查询出购物车中对应的菜品，以供判断菜品是否存在
         List<ShoppingCart> list = shoppingCartMapper.list(shoppingCart);//使用集合来返回数据以保持接口的通用性
 
@@ -53,10 +65,6 @@ public class ShoppingCartServiceImpl implements ShoppingCartService {
             shoppingCartMapper.updateNumberById(cart);
         } else {
             // 5. 如果不存在，添加到购物车，数量默认为1
-            Long dishId = shoppingCartDTO.getDishId();
-
-            Dish dish = dishMapper.getById(dishId);
-
             shoppingCart.setName(dish.getName());
             shoppingCart.setImage(dish.getImage());
             shoppingCart.setAmount(dish.getPrice());
@@ -65,6 +73,9 @@ public class ShoppingCartServiceImpl implements ShoppingCartService {
 
             shoppingCartMapper.insert(shoppingCart);
         }
+
+        // 购物车写入成功后记录加购热度；Redis异常不会影响加购结果。
+        hotDishRankingService.recordCart(dish);
     }
 
     /**
