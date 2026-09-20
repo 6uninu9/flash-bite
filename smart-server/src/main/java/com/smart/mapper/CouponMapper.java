@@ -5,7 +5,6 @@ import com.smart.entity.Coupon;
 import org.apache.ibatis.annotations.Insert;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Select;
-import org.apache.ibatis.annotations.Update;
 
 import java.util.List;
 
@@ -32,12 +31,11 @@ public interface CouponMapper {
     Coupon getById(Long couponId);
 
     /**
-     * 根据id更新优惠券库存
+     * 原子扣减秒杀券库存：仅当库存大于 0 才扣减，避免读改写导致超卖
      * @param couponId 优惠券id
-     * @param newSurplusStock 新的库存数量
+     * @return 受影响行数，1 表示扣减成功
      */
-    @Update("update coupon set surplus_stock = #{newSurplusStock} where id = #{couponId}")
-    void deductCouponStockById(Long couponId, int newSurplusStock);
+    int deductSeckillStockConditionally(Long couponId);
 
     /**
      * 根据条件查询优惠券列表

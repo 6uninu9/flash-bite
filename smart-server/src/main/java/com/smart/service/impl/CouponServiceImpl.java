@@ -33,6 +33,7 @@ import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.apache.rocketmq.common.message.Message;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.interceptor.TransactionAspectSupport;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
@@ -184,7 +185,14 @@ public class CouponServiceImpl implements CouponService, BloomFilterDataService 
     }
 
     /**
-     * 扣减优惠券库存并插入用户优惠券记录
+     * 秒杀落库：扣减 DB 库存 + 写入用户券记录（事务内保证"要么都成功、要么都不做"）。
+     *
+     * <p>失败分流原则：只有"瞬时故障"（DB 连接异常、死锁等）才以异常抛出交由 MQ 重试；
+     * "永久失败"（幂等命中、DB 库存不足、券不存在）一律记录日志后正常返回，让消息被 ack，
+     * 避免无效重试与死信堆积——这类条件重试永远不会成功，需靠告警与定时对账兜底。
+     *
+     * <p>注意：本方法必须是事务入口（事务由本方法开启）。否则 setRollbackOnly 会升级为全局回滚标记，
+     * 导致外层事务提交时抛 UnexpectedRollbackException。
      *
      * @param couponId 优惠券ID
      * @param userId   用户ID
@@ -192,13 +200,15 @@ public class CouponServiceImpl implements CouponService, BloomFilterDataService 
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void deductCouponStockAndAddUserCoupon(Long couponId, Long userId) {
-        // 1. 查询优惠卷库存
+        // 1. 查询优惠券（永久失败：券不存在）
         Coupon coupon = couponMapper.getById(couponId);
+        if (coupon == null) {
+            log.error("秒杀落库永久失败：优惠券不存在，已 ack 不重试。couponId={}, userId={}", couponId, userId);
+            return;
+        }
 
-        // 2. 扣减库存
-        couponMapper.deductCouponStockById(couponId, coupon.getSurplusStock() - 1);
-
-        // 3. 插入用户优惠券记录
+        // 2. 先插入用户券记录，用唯一约束 (user_id, coupon_id) 做幂等判重：
+        //    INSERT IGNORE 影响 0 行 = 该用户已有这张券（MQ 重复投递，或"已提交但提交后回调异常"的假失败）
         LocalDateTime getTime = LocalDateTime.now();
         LocalDateTime expireTime = getTime.plusDays(coupon.getValidDays());
 
@@ -215,7 +225,19 @@ public class CouponServiceImpl implements CouponService, BloomFilterDataService 
                 .status(UserCoupon.STATUS_UNUSED)
                 .build();
         if (userCouponMapper.insert(userCoupon) != 1) {
-            throw new BaseException(MessageConstant.USER_ALREADY_RECEIVED);
+            // 幂等命中：此刻尚未写其它数据，正常返回即可，事务提交为空操作
+            log.warn("秒杀落库幂等命中，已 ack 不重试。couponId={}, userId={}", couponId, userId);
+            return;
+        }
+
+        // 3. 条件扣减 DB 库存（原子 SQL，仅库存 > 0 才扣，替代原"读改写"）
+        if (couponMapper.deductSeckillStockConditionally(couponId) != 1) {
+            // 永久失败：Redis 已预扣但 DB 已无库存（或活动状态已变），重试不会成功，需对账。
+            // 标记回滚以撤销第 2 步插入的券（避免"白券"），但不抛异常，让消息 ack。
+            log.error("秒杀落库永久失败：DB 库存扣减失败（Redis 已预扣，需定时对账）。回滚并 ack 不重试。couponId={}, userId={}",
+                    couponId, userId);
+            TransactionAspectSupport.currentTransactionStatus().setRollbackOnly();
+            return;
         }
 
         // 4. 事务提交后发送过期消息，避免数据库回滚时仍投递消息。

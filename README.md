@@ -1,172 +1,93 @@
-# 闪食 (Flash-Bite) - 餐饮自营外卖服务平台
+# 闪食（Flash-Bite）
 
 [![Java](https://img.shields.io/badge/Java-21-orange.svg)](https://openjdk.org/projects/jdk/21/)
 [![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.3.3-green.svg)](https://spring.io/projects/spring-boot)
-[![Spring Cloud](https://img.shields.io/badge/Spring%20Cloud-2023.0.3-blue.svg)](https://spring.io/projects/spring-cloud)
 [![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-## 1. 项目简介
+## 项目简介
 
-闪食是一套面向餐饮商家的自营外卖后端系统，覆盖商家管理端与微信小程序客户端双端能力。项目聚焦电商后端高并发经典场景，针对优惠券秒杀、接口限流、缓存优化、消息异步解耦等问题提供了实现，旨在为电商后端开发者提供学习参考。
+闪食是面向餐饮商家的模块化单体外卖后端，提供商家管理端和用户端的菜品、优惠券、订单等业务能力。当前运行架构为：
 
-> **项目状态**：当前为半成品版本，核心功能持续迭代开发中
-
-## 2. 项目模块
-
-项目采用多模块 Maven 架构：
-
-- **smart-common**：通用基础模块，封装公共工具类、全局统一返回结果、全局异常处理、常量定义等公共能力
-- **smart-pojo**：数据实体模块，存放数据库实体类、DTO、VO 等各类数据传输对象
-- **smart-gateway**：网关服务模块，基于 Spring Cloud Gateway 构建，提供统一鉴权、路由转发、双层限流、熔断降级、跨域处理等网关能力([查看文档](smart-gateway/README.md))
-- **smart-server**：核心业务模块，承载外卖平台全量业务逻辑，包含菜品管理、优惠券秒杀、订单全生命周期等核心功能([查看文档](smart-server/README.md))
-
-## 3. 核心能力
-
-### 1. 高并发优惠券秒杀
-
-针对秒杀场景设计全链路性能优化方案：
-
-- 基于 Redis 预存优惠券库存，通过 Lua 脚本实现原子性库存扣减，从源头避免超卖问题
-- 集成 RocketMQ 实现订单异步落库，削峰填谷，大幅提升秒杀接口吞吐量
-- 多层限流防护，从网关层到业务层全链路管控，保障高并发下系统稳定性
-
-### 2. 统一网关与流量治理
-
-基于 Spring Cloud Gateway 构建系统统一入口，实现全方位流量管控：
-
-- 统一 JWT 鉴权校验、全局跨域处理、请求路由转发，对外提供统一访问入口
-- 集成 Sentinel 实现路由级别的接口限流与熔断降级，支持秒级流量精准管控
-- 基于 Redis 令牌桶算法 + Guava 本地降级实现用户 ID、IP 维度的精细化限流，有效防止接口恶意刷取
-
-### 3. 多级缓存与缓存问题治理
-
-针对菜品查询场景构建高性能缓存体系，解决经典缓存问题：
-
-- **Caffeine L1 + Redis L2** 二级缓存架构，热点数据下沉至本地缓存
-- 结合**滑动窗口算法**统计访问热点，实现冷热数据智能分离
-- 针对性解决缓存**穿透、击穿、雪崩**三大经典问题
-
-### 4. 订单超时自动取消
-
-基于 RocketMQ 延时消息实现订单状态自动化流转：
-
-- 用户下单成功后发送延时消息，到期自动校验订单支付状态
-- 超时未支付订单自动取消，同步释放占用的菜品库存与用户优惠券，避免资源无效占用
-
-.....
-
-## 4. 技术栈
-
-### 1. 核心框架
-
-| 类别        | 组件名称                 | 版本号        |
-|-----------|----------------------|------------|
-| 基础框架      | Spring Boot          | 3.3.3      |
-| 微服务组件集    | Spring Cloud         | 2023.0.3   |
-| 阿里云微服务生态  | Spring Cloud Alibaba | 2023.0.1.0 |
-| ORM 持久层框架 | MyBatis              | 3.0.4      |
-| 分页增强插件    | PageHelper           | 1.4.6      |
-| 数据库连接池    | Druid                | 1.2.18     |
-
-### 2. 中间件
-
-| 类别         | 组件名称                | 版本号    |
-|------------|---------------------|--------|
-| 关系型数据库     | MySQL               | 8.0.37 |
-| 分布式缓存      | Redis               | 5.0.14 |
-| 分布式锁与缓存增强  | Redisson            | 3.27.2 |
-| JVM 本地一级缓存 | Caffeine            | 3.1.8  |
-| 分布式消息队列    | RocketMQ            | 5.3.1  |
-| 流量治理与熔断降级  | Sentinel            | 1.8.9  |
-| 接口文档组件     | Knife4j (OpenAPI 3) | 4.5.0  |
-
-### 工具与特性
-
-| 类别           | 组件 / 特性              | 版本 / 说明     |
-|--------------|----------------------|-------------|
-| 运行环境         | JDK                  | 21，支持虚拟线程特性 |
-| 代码简化工具       | Lombok               | -           |
-| Java 通用工具类库  | Hutool               | 5.8.40      |
-| JSON 处理框架    | FastJSON2            | 2.0.53      |
-| Java 语言增强工具类 | Apache Commons Lang3 | 3.17.0      |
-| JWT 鉴权组件     | JJWT                 | 0.11.5      |
-| 本地限流         | Guava                | 32.1.3-jre  |
-
-## 5. 环境要求
-
-| 环境 / 依赖工具          | 版本要求      |
-|--------------------|-----------|
-| JDK                | 21 及以上    |
-| Maven              | 3.6 及以上   |
-| MySQL              | 8.0.x     |
-| Redis              | 5.0.x 及以上 |
-| RocketMQ           | 5.3.x     |
-| Sentinel Dashboard | 1.8.9     |
-
-## 6. 快速启动
-
-### 1. 克隆项目
-
-```bash
-git clone https://github.com/6uninu9/flash-bite.git
-cd flash-bite
+```text
+客户端 -> smart-server:8080 -> MySQL / Redis / RocketMQ
 ```
 
-### 2. 中间件准备
+`smart-server` 直接完成 JWT 鉴权和跨域响应。开发环境可在其前方运行本地原生 Nginx，使用基础的 `limit_req`、`limit_conn` 进行反向代理和入口保护；完整配置与启动步骤见 [deploy/nginx](deploy/nginx)。当前未声明已在公网服务器部署验证。
 
-依次安装并启动以下依赖中间件：
+## 核心功能
 
-1. **MySQL**：创建项目对应数据库，执行sql目录下的init脚本
+- **分布式菜品热销榜**：用 Redis ZSet 聚合浏览、加购、下单三类行为（默认权重 1/3/10，运营可动态调整），一段 Lua 原子完成"事件幂等 + 多榜单累加"，同用户同菜品 5 分钟滚动窗口只计一次；下单热度在订单事务提交后记录，Redis 故障时事件转 RocketMQ 补偿重放。接口：`GET /user/dish/hot`、`GET /user/dish/hot/category/{categoryId}`；运营配置与指标：`GET|PUT /admin/hot-rank/config`、`GET /admin/hot-rank/metrics`。
+- **优惠券秒杀与营销闭环**：秒杀走"Redis Set 一人一单去重 → Lua 原子预扣库存 → RocketMQ 异步落库"；普通领取在 DB 内用条件扣减库存，并以 `(user_id, coupon_id)` 唯一约束兜底重复领取。用户券"可用 → 锁定 → 核销 / 释放 / 过期"全部通过条件 UPDATE 流转，订单保存券面额快照。秒杀落库对**永久失败**（幂等命中、DB 库存不足）记录日志后 ack，仅**瞬时故障**抛异常交由 MQ 重试，避免无效重试与死信堆积。
+- **菜品多级缓存治理**：ZSet 滑动窗口自动识别冷/热分类，热点走 Caffeine L1 + Redis L2；热缓存采用"逻辑过期 + 异步重建"避免击穿，布隆过滤器与空值缓存防穿透、随机 TTL 防雪崩；Redis 宕机自动降级直查数据库并回写 L1；写路径按"更新 DB → 失效缓存"执行，失败经 RocketMQ 补偿，并广播清理各实例 L1。
+- **订单超时自动取消**：下单事务提交后发送 RocketMQ 延时消息，消费者以 `setnx` 幂等 + 分布式锁 + 条件更新只取消"待付款"订单，取消后回补库存与优惠券；支付与取消均用条件 UPDATE 防止并发覆盖。
+- **商家实时推送**：WebSocket 长连接 `/ws/{merchantId}`，支持来单提醒与用户催单，替代高频轮询。
 
-2. **Redis**：启动 Redis 服务，默认端口 6379
+## 本地 Nginx 代理
 
-3. **RocketMQ**：启动 NameServer 与 Broker 服务，默认端口 9876
+开发链路为 `客户端 -> 本地 Nginx:80 -> smart-server:8080`。Nginx 不验证 JWT；它透传鉴权 Header，并将登录、领券和下单端点按 IP 做基础限流。配置、规则、启动、重载、停止和测试步骤见 [deploy/nginx/README.md](deploy/nginx/README.md)。
 
-4. Sentinel Dashboard：
+## Git 提交建议
 
-   - 下载地址：[Sentinel v1.8.9 发布页](https://link.wtturl.cn/?target=https%3A%2F%2Fgithub.com%2Falibaba%2FSentinel%2Freleases%2Ftag%2F1.8.9&scene=im&aid=497858&lang=zh)
-   - 启动命令：
+- 不提交 `doc/key/`、`doc/tmp/`、私钥、密码、Token、日志、`target/` 或 `.vscode/`。
+- 每个提交只承载一个可验证目标；提交前运行对应测试、`git diff --check`，并检查暂存区内容。
+- Gateway/Sentinel 删除、JWT 迁移、本地 Nginx 配置应拆为独立提交，便于审阅和回滚。
+- 推荐提交说明：
+
+```text
+refactor(architecture): remove gateway and sentinel
+feat(auth): verify JWT in server interceptor
+chore(nginx): add native local proxy and rate limits
+docs: record gateway removal and local nginx workflow
+```
+
+## 模块
+
+- `smart-common`：公共工具、异常、常量、配置属性和统一返回结构。
+- `smart-pojo`：实体、DTO、VO 等数据模型。
+- `smart-server`：核心业务服务，默认监听 `8080`，包含菜品、优惠券、订单和用户相关接口。
+
+## 鉴权与跨域
+
+- 用户端受保护接口使用配置的 `authentication` Header，管理员接口使用 `token` Header；两者均兼容 `Authorization: Bearer <token>`。
+- 服务端自行验证 JWT 并设置请求上下文；客户端传入的 `X-User-Id`、`X-Admin-Id` 不会被信任。
+- 登录、公开菜品/分类查询和接口文档在白名单中；领取优惠券、下单等业务接口需要 JWT。
+- 跨域由 `smart-server` 的 MVC 配置响应，允许常用 HTTP 方法和请求头，但不允许跨域携带 Cookie；JWT 通过请求头传递。
+
+## 技术栈
+
+| 类别 | 组件 |
+|---|---|
+| 基础框架 | Spring Boot 3.3.3 |
+| 持久层 | MyBatis、PageHelper、Druid、MySQL |
+| 缓存与锁 | Redis、Redisson、Caffeine |
+| 异步消息 | RocketMQ |
+| 实时推送 | Spring WebSocket（`@ServerEndpoint`） |
+| 可观测性 | Micrometer / Spring Boot Actuator |
+| 接口文档 | Knife4j / OpenAPI 3 |
+| 鉴权 | JJWT |
+
+## 本地启动
+
+1. 准备 MySQL、Redis 与 RocketMQ，并在本地环境配置中提供相应连接信息及可选的微信配置。
+2. 启动业务服务：
 
    ```bash
-   java -Dserver.port=8099 -Dcsp.sentinel.dashboard.server=localhost:8099 -Dproject.name=sentinel-dashboard -Dcsp.sentinel.port=8721 -Dcsp.sentinel.web.context.unify=false -Dcsp.sentinel.http.method.specify=true -jar sentinel-dashboard.jar
+   mvn -pl smart-server -am spring-boot:run
    ```
 
-### 3. 配置修改
+3. 访问接口文档：`http://localhost:8080/doc.html`。
 
-分别添加 `smart-server` 与 `smart-gateway` 模块下的 `application-dev.yml` 配置文件，补充对应环境的配置：
+## 已通过测试
 
-`smart-server`:
-- 数据库连接信息（地址、端口、账号、密码、库名）
-- Redis 连接信息（地址、端口、密码、库号）
-- RocketMQ NameServer 地址
-- 微信小程序相关配置（可选）
+```bash
+mvn "-Dsurefire.failIfNoSpecifiedTests=false" -pl smart-server -am test
+```
 
-`smart-gateway`:
-- Redis 连接信息（地址、端口、密码、库号）
+| 测试类 | 覆盖点 |
+|---|---|
+| `UserContextInterceptorTest` | 登录签发 JWT 后可访问受保护接口、伪造身份 Header 被拒绝、管理员与用户 token 不可混用、公开菜品查询正常返回 |
+| `HotDishRankingServiceImplTest` | 浏览 5 分钟滚动去重、Redis 故障不阻塞主流程、分类榜过滤下架/错分类、小时榜与周榜窗口 Key |
+| `DishServiceCacheHitRateTest` | 热分类命中 L1 时不回落数据库（模拟命中率 99%） |
+| `DishServiceColdCacheFallbackTest` | 冷/热分类在 Redis 宕机或超时下降级直查 DB、回种失败仍返回数据、布隆过滤器 fail-open |
 
-> 限流、熔断规则已通过本地文件配置，位于 `smart-gateway/src/main/resources/sentinel/` 目录下，启动即可生效
-
-### 4. 启动服务
-
-1. 启动 `smart-server` 核心业务服务（默认端口：8081）
-2. 启动 `smart-gateway` 网关服务（默认端口：8080）
-
-### 5. 访问验证
-
-- 接口文档地址：[http://localhost:8080/doc.html](https://link.wtturl.cn/?target=http%3A%2F%2Flocalhost%3A8080%2Fdoc.html&scene=im&aid=497858&lang=zh)
-- Sentinel 控制台地址：[http://localhost:8099](https://link.wtturl.cn/?target=http%3A%2F%2Flocalhost%3A8099&scene=im&aid=497858&lang=zh)
-- 网关统一入口：[http://localhost:8080](https://link.wtturl.cn/?target=http%3A%2F%2Flocalhost%3A8080&scene=im&aid=497858&lang=zh)
-
-## 7.后续规划
-
-项目持续迭代中，后续将逐步完善以下内容：
-
-- 补全商家管理端全量业务功能与用户端部分业务功能
-- 使用 nginx 在网络层截断恶意流量，避免网关被海量连接打挂
-- 将 Sentinel 下沉到下游服务做接口级限流、熔断以及线程隔离，解决下游服务降级后异常无法感知的问题，网关层 Sentinel 不再进行限流，只做服务级熔断降级。
-- 使用 MySQL 与 Redis 存储网关路由规则与 Sentinel 限流熔断规则，实现动态规则修改
-- ......
-
-## 8. 说明
-
-本项目主要用于电商后端技术学习与参考，欢迎提交 Issue 与 PR 交流。
+热销榜另有 2026-09-09 的真机全链路 E2E 记录（Redis + RocketMQ + MySQL，覆盖浏览/加购/下单计分、去重、权重热更新与指标），见 `doc/AGENTS.md`。外部中间件部署与微信登录的完整集成测试仍需在具备相应环境时执行。
